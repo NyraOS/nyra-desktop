@@ -22,7 +22,7 @@ requests; until then a red run is looked at, not ignored, and a flaky one is a b
 ### How it runs
 
 - **The desktop container** (`session.sh`, as uid 1000): `dbus-run-session`, then `kwin_wayland
-  --virtual` at 1280×800 and `plasmashell`. The session bus listens in `XDG_RUNTIME_DIR`.
+  --virtual` at 1280×800 (in CI, `--drm` on vkms: see "The screenshot") and `plasmashell`. The session bus listens in `XDG_RUNTIME_DIR`.
   Settings that exist only for the test: `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`,
   `KWIN_SCREENSHOT_NO_PERMISSION_CHECKS=1`, animations off (`AnimationDurationFactor=0`), a fixed
   number of llvmpipe threads (`LP_NUM_THREADS=2`), `KCRASH_DUMP_ONLY=1` (no crash dialog, a core
@@ -43,22 +43,19 @@ requests; until then a red run is looked at, not ignored, and a flaky one is a b
 
 ### The screenshot
 
-KWin takes screenshots only when it composites with OpenGL, and on its virtual backend it does that
-only with a DRM render device (KWin's own CI loads `vgem`, a virtual GPU memory device without a
-display; Mesa then renders with llvmpipe). Without a device in `/dev/dri`, KWin composites in software
-and cancels every screenshot, and the screenshot check fails.
+KWin takes screenshots only when it composites with OpenGL (llvmpipe here), and that needs a DRM
+device. Its virtual backend takes only a render node or `vgem` (as in KWin's own CI), and the kernel
+of the GitHub-hosted `ubuntu-24.04` runners (`linux-azure`) has neither: no `vgem`, and its only DRM
+device, `hyperv_drm`, has no render node. Without a device, KWin composites in software and cancels
+every screenshot.
 
-**Open point: no screenshot in CI yet.** The kernel of the GitHub-hosted `ubuntu-24.04` runners
-(`linux-azure`, 6.17 in October 2026) is built without `vgem`; its only DRM device is `hyperv_drm`,
-which has no render node, and `vkms` is not in its base modules. So KWin composites in software there
-and the screenshot check fails; every other check runs. There is no reference screenshot yet: the
-first one is committed by the change that makes screenshots work in CI, which also checks the masks
-against it (they are placed from the default panel layout). The ways out being weighed:
-
-- `vkms` from the runner kernel's `linux-modules-extra`, with KWin's DRM backend on it instead of the
-  virtual backend (the virtual backend only takes a render node or `vgem`);
-- `vgem` built for the runner kernel in the job, from the kernel's source;
-- the screenshot taken by the level 2 test instead, in a VM with the image's own kernel.
+**So CI runs KWin on its DRM backend instead of the virtual one (`kwin_wayland --drm`).** The job
+installs the kernel's own signed `linux-modules-extra` and loads `vkms`, a virtual display; `run.sh`
+gets its node in `SESSION_DRM_DEVICE` and `session.sh` starts KWin on it, with no logind (KWin opens
+the device itself), software GBM, `KWIN_COMPOSE=O2` (KWin does not pick OpenGL for a software renderer
+on its own) and a custom 1280×800 mode in `kwinoutputconfig.json` (vkms prefers 1024×768). Everything
+else in the session is the same. Without `SESSION_DRM_DEVICE`, `session.sh` uses `--virtual`, which
+also takes screenshots on a machine with a render node.
 
 The comparison leaves out two areas (`MASKS` in `test_session.py`): the panel clock and the
 pointer. A pixel counts as different when one of its channels differs by more than 24 (llvmpipe
@@ -67,7 +64,8 @@ pixels differ. The screenshot is taken once the screen stops changing (two captu
 are the same).
 
 Every run uploads the `session` artifact: `screenshot.png`, `diff.png` (the reference dimmed,
-differing pixels red, masked areas outlined in blue), `summary.md` and `session.log`. The job summary
+differing pixels red, masked areas outlined in blue), `summary.md`, `session.log` and the output
+configuration KWin ended up with. The job summary
 shows the table of checks.
 
 **The reference changes only in the pull request that changes the look**: take `screenshot.png`
@@ -85,7 +83,8 @@ that check fails and says why.
 ### Running it
 
 ```bash
-# Rootless podman, a device in /dev/dri you can open, and kernel.core_pattern=/cores/core.%e.%p.
+# Rootless podman, a DRM device you can open (a render node, or a KMS device such as vkms in
+# SESSION_DRM_DEVICE) and kernel.core_pattern=/cores/core.%e.%p.
 PODMAN_STORE=/var/tmp/session-store tests/session/run.sh /var/tmp/session-out
 # Another desktop image:
 DESKTOP_IMAGE=oci-archive:/path/to/image.oci.tar tests/session/run.sh /var/tmp/session-out

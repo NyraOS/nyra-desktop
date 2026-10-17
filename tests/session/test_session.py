@@ -22,10 +22,11 @@ WIDTH, HEIGHT = 1280, 800
 # A solid colour: the image's own wallpaper may change with time or theme, and the test is about the
 # shell, not the wallpaper.
 WALLPAPER = "#1d2b38"
-# Left out of the comparison, as (left, top, right, bottom): the panel clock (time and date) and the
-# pointer (KWin leaves it out of the capture, but where it rests depends on the backend).
+# Left out of the comparison, as (left, top, right, bottom): the panel clock (time and date, its text
+# spans 1158-1222 x 757-782 in the reference, with room for wider digits) and the pointer (KWin leaves
+# it out of the capture, but where it rests depends on the backend).
 MASKS = {
-    "clock": (1150, 750, 1240, 799),
+    "clock": (1148, 750, 1232, 790),
     "cursor": (608, 368, 672, 432),
 }
 # A pixel differs when one of its channels differs by more than this: llvmpipe's rounding can depend

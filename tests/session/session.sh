@@ -31,12 +31,13 @@ fi
 # primary node (GBM in software: the device has no Mesa driver); KWin would not pick OpenGL for a
 # software renderer without KWIN_COMPOSE. The device
 # has no EDID and its own preferred mode, so the output gets a custom 1280x800 mode (CVT, 60 Hz,
-# which KWin stores as 59810 mHz with the Generated and Custom flags).
+# which KWin stores as 59810 mHz with the Generated and Custom flags). KWin matches the entry by the
+# empty EDID, as the only output; the connector name is the one vkms gets.
 export KWIN_COMPOSE=O2 GBM_ALWAYS_SOFTWARE=1
 cat > "$HOME/.config/kwinoutputconfig.json" <<'JSON'
 [
   {"name": "outputs", "data": [{
-    "connectorName": "Virtual-1",
+    "connectorName": "Virtual-2",
     "mode": {"width": 1280, "height": 800, "refreshRate": 59810, "flags": 10},
     "customModes": [{"width": 1280, "height": 800, "refreshRate": 60000, "flags": 0}],
     "scale": 1
