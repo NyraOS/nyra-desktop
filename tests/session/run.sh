@@ -10,8 +10,10 @@
 #                  oci-archive:PATH, ...). Default: the throwaway image of desktop.Containerfile.
 #   PODMAN_STORE   a directory for a podman store of its own (--root/--runroot under it). Default:
 #                  podman's default store.
-# Needs a DRM device in /dev/dri that the calling user can open (CI loads vgem): KWin composites with
-# OpenGL (llvmpipe) only on one, and its screenshots need OpenGL compositing.
+#   SESSION_DRM_DEVICE  a display-only KMS device (/dev/dri/cardN, vkms in CI) for KWin's DRM backend.
+#                  Default: KWin's virtual backend, with the render nodes of /dev/dri if there are any.
+# KWin takes screenshots only with OpenGL compositing (llvmpipe), which needs one of the two: a render
+# node for the virtual backend or a KMS device for the DRM backend (docs/TESTING.md).
 # Both containers run rootless, as uid 1000 mapped to the calling user. Core dumps of the session are
 # collected in OUT/cores when kernel.core_pattern is /cores/core.%e.%p (CI sets it).
 set -euo pipefail
@@ -63,9 +65,13 @@ trap cleanup EXIT
 # and OUT stays readable without podman unshare.
 user=("--userns=keep-id:uid=1000,gid=1000" --user 1000:1000 -v "$runtime:/run/user/1000" -v "$here:/harness:ro")
 devices=()
-for d in /dev/dri/card* /dev/dri/renderD*; do
-  [ -e "$d" ] && devices+=(--device "$d")
-done
+if [ -n "${SESSION_DRM_DEVICE:-}" ]; then
+  devices=(--device "$SESSION_DRM_DEVICE" -e KWIN_DRM_DEVICES="$SESSION_DRM_DEVICE")
+else
+  for d in /dev/dri/renderD*; do
+    [ -e "$d" ] && devices+=(--device "$d")
+  done
+fi
 # SYS_NICE: kwin_wayland carries the file capability cap_sys_nice, and exec refuses a file whose
 # capabilities are outside the bounding set. The hostname shows in the launcher.
 "${podman[@]}" run -d --name "$name" "${user[@]}" "${devices[@]}" --cap-add SYS_NICE --hostname nyra-test \
