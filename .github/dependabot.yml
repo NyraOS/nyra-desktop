@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Updates for the GitHub Actions pinned by SHA in .github/workflows: pins keep CI from running code
+# nobody reviewed, and Dependabot keeps them current. Minor and patch updates come grouped in one PR.
+# Container images in Containerfiles are pinned by digest and updated by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
