@@ -33,9 +33,12 @@ jobs:
         run: |
           sudo apt-get install -y -q "linux-modules-extra-$(uname -r)" >/dev/null
           sudo modprobe vkms
+          # udev sets the node to root:video 0660 when it gets to it: wait for that, then open it up.
+          sudo udevadm settle
           for d in /dev/dri/card*; do
             if readlink -f "/sys/class/drm/${d##*/}/device" | grep -q vkms; then
               sudo chmod 0666 "$d"
+              [ -r "$d" ] && [ -w "$d" ]
               echo "SESSION_DRM_DEVICE=$d" >>"$GITHUB_ENV"
             fi
           done

@@ -28,10 +28,11 @@ if [ -z "${KWIN_DRM_DEVICES:-}" ]; then
     kwin_wayland --virtual --width 1280 --height 800 --no-lockscreen plasmashell
 fi
 # The DRM backend: no logind here, so KWin opens the device itself. llvmpipe draws on the device's
-# primary node; KWin would not pick OpenGL for a software renderer without KWIN_COMPOSE. The device
+# primary node (GBM in software: the device has no Mesa driver); KWin would not pick OpenGL for a
+# software renderer without KWIN_COMPOSE. The device
 # has no EDID and its own preferred mode, so the output gets a custom 1280x800 mode (CVT, 60 Hz,
 # which KWin stores as 59810 mHz with the Generated and Custom flags).
-export KWIN_COMPOSE=O2
+export KWIN_COMPOSE=O2 GBM_ALWAYS_SOFTWARE=1
 cat > "$HOME/.config/kwinoutputconfig.json" <<'JSON'
 [
   {"name": "outputs", "data": [{
