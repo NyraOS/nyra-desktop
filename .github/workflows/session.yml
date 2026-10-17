@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The session test (docs/TESTING.md): the desktop session in a container, checked over AT-SPI and
+# compared with a reference screenshot. No VM and no KVM. Not a required check yet (docs/TESTING.md).
+name: session
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  session:
+    runs-on: ubuntu-24.04
+    # About 3 min with the images cached; a build of the images adds a few minutes.
+    timeout-minutes: 20
+    env:
+      PODMAN_STORE: /mnt/session-store
+      IMAGES: /mnt/session-images.tar
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # KWin composites with OpenGL (llvmpipe) only on a DRM device, and its screenshots need that:
+      # vgem, a virtual device without a display, as in KWin's own CI. Runners have no GPU, so it is
+      # the only device. Core dumps go to /cores of the crashing process, which run.sh mounts.
+      # The podman store goes to /mnt, which has more free space than /.
+      - name: Prepare the runner (vgem, core dumps, podman store)
+        run: |
+          if ! sudo modprobe vgem; then
+            sudo apt-get install -y -q "linux-modules-extra-$(uname -r)"
+            sudo modprobe vgem
+          fi
+          sudo chmod 0666 /dev/dri/card*
+          ls -l /dev/dri
+          sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
+          sudo mkdir -p "$PODMAN_STORE" && sudo chown "$(id -u):$(id -g)" "$PODMAN_STORE"
+          df -h / /mnt
+
+      # The two images, keyed by what they are built from. Pull requests read the cache of main and
+      # their own; the images only run the test.
+      - id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMAGES }}
+          key: session-images-${{ hashFiles('tests/session/*.Containerfile', 'tests/session/apt-snapshot.sh') }}
+      - name: Load the cached images
+        if: steps.cache.outputs.cache-hit == 'true'
+        run: |
+          podman --root "$PODMAN_STORE/root" --runroot "$PODMAN_STORE/run" load -q -i "$IMAGES"
+          rm "$IMAGES"
+
+      - name: Session test (tests/session/run.sh)
+        run: |
+          start=$SECONDS
+          tests/session/run.sh "$RUNNER_TEMP/session"
+          echo "run.sh took $((SECONDS - start)) s"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Session test"
+            cat "$RUNNER_TEMP/session/summary.md" 2>/dev/null || echo "No summary: run.sh stopped early (see the log)."
+            echo
+            echo "Screenshot, diff (differing pixels red, masked areas outlined in blue) and session log: the \`session\` artifact."
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: session
+          path: |
+            ${{ runner.temp }}/session/*.png
+            ${{ runner.temp }}/session/*.md
+            ${{ runner.temp }}/session/session.log
+          if-no-files-found: ignore
+
+      - name: Save the images for the cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        id: save
+        run: |
+          p=(podman --root "$PODMAN_STORE/root" --runroot "$PODMAN_STORE/run")
+          mapfile -t images < <("${p[@]}" images --format '{{.Repository}}:{{.Tag}}' | grep '^localhost/nyra-session-')
+          [ "${#images[@]}" -eq 2 ] || { echo "Not saved: images ${images[*]}"; exit 0; }
+          "${p[@]}" save -q -m -o "$IMAGES" "${images[@]}"
+          echo "saved=true" >>"$GITHUB_OUTPUT"
+      - if: always() && steps.save.outputs.saved == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMAGES }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}
