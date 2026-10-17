@@ -31,12 +31,15 @@ requests; until then a red run is looked at, not ignored, and a flaky one is a b
 - **The test container** (`test_session.py`, Python with pyatspi and Pillow, from
   `tools.Containerfile`) shares only `XDG_RUNTIME_DIR`: the session bus, the AT-SPI bus and the
   Wayland socket. Nothing of the test tools goes into the desktop image.
-- Both containers are rootless podman; uid 1000 in both is the user who runs the test.
+- Both containers are rootless podman; uid 1000 in both is the user who runs the test. The desktop
+  container gets `CAP_SYS_NICE` in its bounding set: `kwin_wayland` carries that file capability,
+  and the kernel refuses to run a file whose capabilities it cannot grant.
 - **The desktop image is a parameter** (`DESKTOP_IMAGE`). Until the real desktop image of this
   repository exists, `desktop.Containerfile` builds a throwaway one: Debian unstable at the
   snapshot date of nyra-base (`apt-snapshot.sh`), with `plasma-desktop`, `plasma-workspace`,
   `kwin-wayland`, `konsole`, `dolphin`, `at-spi2-core`, a font and Mesa, without recommends. When the
-  real image exists, CI passes it instead and `desktop.Containerfile` goes away.
+  real image exists, CI passes it instead and `desktop.Containerfile` goes away. (A bootc image has
+  an empty `/var`; whether the session needs anything there is to be checked then.)
 
 ### The screenshot
 
@@ -45,10 +48,17 @@ only with a DRM render device (KWin's own CI loads `vgem`, a virtual GPU memory 
 display; Mesa then renders with llvmpipe). Without a device in `/dev/dri`, KWin composites in software
 and cancels every screenshot, and the screenshot check fails.
 
-**Open point:** the kernel of the GitHub-hosted `ubuntu-24.04` runners (`linux-azure`) has no `vgem`,
-not even in `linux-modules-extra`, so in CI the screenshot check fails today. The ways out (building
-`vgem` for the runner kernel in the job, or taking the screenshot in the level 2 test, in a VM with the
-image's own kernel) are a decision still to be taken.
+**Open point: no screenshot in CI yet.** The kernel of the GitHub-hosted `ubuntu-24.04` runners
+(`linux-azure`, 6.17 in October 2026) is built without `vgem`; its only DRM device is `hyperv_drm`,
+which has no render node, and `vkms` is not in its base modules. So KWin composites in software there
+and the screenshot check fails; every other check runs. There is no reference screenshot yet: the
+first one is committed by the change that makes screenshots work in CI, which also checks the masks
+against it (they are placed from the default panel layout). The ways out being weighed:
+
+- `vkms` from the runner kernel's `linux-modules-extra`, with KWin's DRM backend on it instead of the
+  virtual backend (the virtual backend only takes a render node or `vgem`);
+- `vgem` built for the runner kernel in the job, from the kernel's source;
+- the screenshot taken by the level 2 test instead, in a VM with the image's own kernel.
 
 The comparison leaves out two areas (`MASKS` in `test_session.py`): the panel clock and the
 pointer. A pixel counts as different when one of its channels differs by more than 24 (llvmpipe
@@ -87,7 +97,9 @@ out of podman's default store.
 
 ### Time
 
-On a GitHub-hosted `ubuntu-24.04` runner (x86_64), with the images in the Actions cache: TIME_WARM.
-The cache key is the hash of the Containerfiles and `apt-snapshot.sh`; when it changes, the images are
-built from snapshot.debian.org first (TIME_COLD) and cached for the next runs. The podman store is on
-`/mnt`, which has more free space than `/`.
+On a GitHub-hosted `ubuntu-24.04` runner (x86_64), with the images in the Actions cache: about one
+minute for the whole job (restoring the 650 MB cache and loading the images about 30 s, the test
+about 20 s). The cache key is the hash of the Containerfiles and `apt-snapshot.sh`; when it changes,
+the images are built from snapshot.debian.org first (about 9 minutes for the whole job, most of it
+downloading the desktop packages) and cached for the next runs. The podman store is on `/mnt`, the
+larger disk on some runner images.

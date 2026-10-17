@@ -25,7 +25,7 @@ WALLPAPER = "#1d2b38"
 # Left out of the comparison, as (left, top, right, bottom): the panel clock (time and date) and the
 # pointer (KWin leaves it out of the capture, but where it rests depends on the backend).
 MASKS = {
-    "clock": (1150, 750, 1240, 800),
+    "clock": (1150, 750, 1240, 799),
     "cursor": (608, 368, 672, 432),
 }
 # A pixel differs when one of its channels differs by more than this: llvmpipe's rounding can depend
@@ -79,6 +79,13 @@ def find_showing(root, role, name):
         except GLib.Error:
             return False
     return pyatspi.findDescendant(root, match) if root is not None else None
+
+
+def showing_frame(app):
+    for i in range(app.childCount if app is not None else 0):
+        if app[i].getRoleName() == "frame" and showing(app[i]):
+            return app[i]
+    return None
 
 
 def press(acc):
@@ -211,9 +218,7 @@ def main(reference_path, out):
         return
 
     press(konsole_item)
-    window = wait_for(lambda: next((app[i] for app in [application("konsole")] if app is not None
-                                    for i in range(app.childCount)
-                                    if app[i].getRoleName() == "frame" and showing(app[i])), None))
+    window = wait_for(lambda: showing_frame(application("konsole")))
     check("Konsole started from the launcher shows a window", window is not None,
           repr(window.name) if window is not None else "no Konsole window within 60 s")
 
