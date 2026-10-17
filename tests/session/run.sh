@@ -25,17 +25,28 @@ fi
 
 # Builds NAME.Containerfile as localhost/nyra-session-NAME:<hash of its inputs>, unless that image
 # exists already (from the CI cache or an earlier run), and prints the reference.
+# The base image (FROM, pinned by digest) is pulled from Amazon ECR Public's copy of Docker Hub's
+# official images, or from Docker Hub when ECR refuses (it limits busy runner IPs); the digest is the
+# same on both and podman checks it.
 image() {
-  local tag
+  local tag digest source
   tag="localhost/nyra-session-$1:$(cat "$here/$1.Containerfile" "$here/apt-snapshot.sh" | sha256sum | cut -c1-16)"
   if ! "${podman[@]}" image exists "$tag"; then
     echo "Building $tag" >&2
-    "${podman[@]}" build -q -t "$tag" -f "$here/$1.Containerfile" "$here" >/dev/null
+    digest="$(sed -n 's/^FROM .*@sha256:/sha256:/p' "$here/$1.Containerfile")"
+    for source in public.ecr.aws/docker/library/debian docker.io/library/debian; do
+      "${podman[@]}" image exists "$source@$digest" && break
+      "${podman[@]}" pull -q "$source@$digest" >/dev/null && break
+    done
+    "${podman[@]}" build -q --pull=never --from "$source@$digest" -t "$tag" -f "$here/$1.Containerfile" "$here" \
+      >/dev/null || return 1
   fi
   echo "$tag"
 }
 
-desktop="${DESKTOP_IMAGE:-$(image desktop)}"
+# Plain assignments, so that a failed build stops the script (set -e).
+desktop="${DESKTOP_IMAGE:-}"
+[ -n "$desktop" ] || desktop="$(image desktop)"
 tools="$(image tools)"
 rm -rf "$out"
 mkdir -p "$out/cores" "$out/home"

@@ -27,7 +27,7 @@ jobs:
       # KWin composites with OpenGL (llvmpipe) only on a DRM render device, and its screenshots need
       # that. The runner kernel has no vgem (KWin's own CI uses it); without a device the screenshot
       # check fails (docs/TESTING.md). Core dumps go to /cores of the crashing process, which run.sh
-      # mounts. The podman store goes to /mnt, which has more free space than /.
+      # mounts. The podman store goes to /mnt, the larger disk on some runner images.
       - name: Prepare the runner (DRM device, core dumps, podman store)
         run: |
           k="$(uname -r)"
@@ -38,6 +38,8 @@ jobs:
             echo "::warning::No vgem module for kernel $k: no DRM device for KWin, the screenshot check will fail"
           fi
           ls -l /dev/dri || true
+          sudo modprobe vkms && ls -l /dev/dri /sys/class/drm || true
+          for c in /sys/class/drm/card?; do echo "$c: $(basename "$(readlink -f "$c/device/driver")")"; done
           sudo sysctl -w kernel.core_pattern=/cores/core.%e.%p
           sudo mkdir -p "$PODMAN_STORE" && sudo chown "$(id -u):$(id -g)" "$PODMAN_STORE"
           df -h / /mnt
