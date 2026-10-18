@@ -14,7 +14,8 @@ defaults:
 jobs:
   session:
     runs-on: ubuntu-24.04
-    # A few minutes with the images cached; building them takes about 12 more (docs/TESTING.md).
+    # About 1.5 min with the images cached; 9 to 12.5 min measured when they are built, so a cache
+    # miss can take the job past 10 min (docs/TESTING.md).
     timeout-minutes: 20
     env:
       PODMAN_STORE: /mnt/session-store
@@ -86,6 +87,8 @@ jobs:
             ${{ runner.temp }}/session/session.log
             ${{ runner.temp }}/session/home/.config/kwinoutputconfig.json
           if-no-files-found: ignore
+          # kwinoutputconfig.json is under .config, and hidden paths are skipped otherwise.
+          include-hidden-files: true
 
       - name: Save the images for the cache
         if: always() && steps.cache.outputs.cache-hit != 'true'

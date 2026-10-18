@@ -13,27 +13,37 @@ Writes screenshot.png, diff.png and summary.md to OUT. Exits 1 when a check fail
 import os
 import sys
 import time
+import traceback
 
 import pyatspi
 from gi.repository import Gio, GLib
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageColor, ImageDraw
 
 WIDTH, HEIGHT = 1280, 800
 # A solid colour: the image's own wallpaper may change with time or theme, and the test is about the
 # shell, not the wallpaper.
 WALLPAPER = "#1d2b38"
-# Left out of the comparison, as (left, top, right, bottom): the panel clock (time and date, its text
-# spans 1158-1222 x 757-782 in the reference, with room for wider digits) and the pointer (KWin leaves
-# it out of the capture, but where it rests depends on the backend).
+# A point of the desktop that shows the wallpaper.
+WALLPAPER_POINT = (640, 200)
+# Left out of the comparison, as (left, top, right, bottom):
+# - the panel clock (its text spans 1158-1222 x 757-782 in the reference) and the tray's "Show hidden
+#   icons" arrow to its left: the date is "d MM yyyy", 7 px narrower on days 1-9, which narrows the
+#   clock and moves the arrow from x=1125 to x=1133;
+# - the pointer: KWin leaves it out of the capture, but where it rests depends on the backend.
 MASKS = {
-    "clock": (1148, 750, 1232, 790),
+    "clock": (1112, 750, 1232, 790),
     "cursor": (608, 368, 672, 432),
 }
 # A pixel differs when one of its channels differs by more than this: llvmpipe's rounding can depend
 # on the CPU's vector instructions, and runners have different CPUs.
 PIXEL_TOLERANCE = 24
-# The comparison fails when more than this share of the compared pixels differ.
-MAX_DIFFERENT = 0.001
+# The comparison fails when more pixels than this differ. Runners have differed by 0 so far; a missing
+# panel icon is several hundred.
+MAX_DIFFERENT_PIXELS = 40
+# The Dolphin icon in the panel of the reference (left, top, right, bottom), and a panel pixel next to
+# it: painting the icon over must fail the comparison, or the comparison is too lenient.
+PANEL_ICON = (176, 752, 210, 786)
+PANEL_POINT = (220, 768)
 
 results = []
 
@@ -141,12 +151,14 @@ def different_pixels(a, b):
 
 
 def stable_screenshot(bus):
-    """A screenshot that matches the one taken a second earlier: the desktop finished drawing."""
+    """A screenshot with the test's wallpaper that matches the one taken a second earlier: the desktop
+    finished drawing."""
+    wallpaper = ImageColor.getrgb(WALLPAPER)
     previous = capture(bus)
     for _ in range(30):
         time.sleep(1)
         current = capture(bus)
-        if different_pixels(previous, current)[1] == 0:
+        if current.getpixel(WALLPAPER_POINT) == wallpaper and different_pixels(previous, current)[1] == 0:
             return current
         previous = current
     return None
@@ -168,9 +180,14 @@ def compare(shot, reference_path, out):
         draw.rectangle(box, outline=(0, 128, 255))
     diff.save(os.path.join(out, "diff.png"))
     compared = WIDTH * HEIGHT - sum((r - l + 1) * (b - t + 1) for l, t, r, b in MASKS.values())
-    share = count / compared
-    return check("screenshot matches the reference", share <= MAX_DIFFERENT,
-                 f"{count} of {compared} pixels differ ({share:.4%}, at most {MAX_DIFFERENT:.2%} allowed)")
+    check("screenshot matches the reference", count <= MAX_DIFFERENT_PIXELS,
+          f"{count} of {compared} pixels differ (at most {MAX_DIFFERENT_PIXELS} allowed)")
+
+    without_icon = reference.copy()
+    ImageDraw.Draw(without_icon).rectangle(PANEL_ICON, fill=reference.getpixel(PANEL_POINT))
+    missing = different_pixels(without_icon, reference)[1]
+    check("the comparison catches a missing panel icon", missing > MAX_DIFFERENT_PIXELS,
+          f"{missing} pixels differ without the Dolphin icon")
 
 
 def write_summary(out):
@@ -232,6 +249,10 @@ if __name__ == "__main__":
     reference_path, out = sys.argv[1], sys.argv[2]
     try:
         main(reference_path, out)
-    finally:
-        write_summary(out)
+        check("test_session.py finished without an error", True)
+    except Exception as e:  # any error stops the checks: it must show as a failure, not as fewer rows
+        traceback.print_exc()
+        detail = f"{type(e).__name__}: {e}".replace("|", "/").replace("\n", " ")
+        check("test_session.py finished without an error", False, detail)
+    write_summary(out)
     sys.exit(0 if results and all(ok for _, ok, _ in results) else 1)

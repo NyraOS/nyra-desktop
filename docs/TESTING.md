@@ -16,8 +16,9 @@ requests; until then a red run is looked at, not ignored, and a flaky one is a b
 | The panel exists | AT-SPI: plasmashell shows the *Application Launcher* and *Digital Clock* buttons |
 | The application launcher opens and lists Konsole and Dolphin | AT-SPI: *Press* on the launcher, then on *All Applications*; both entries are showing |
 | Konsole started from the launcher shows a window | AT-SPI: *Press* on the Konsole entry; a `konsole` application with a showing frame appears |
-| The desktop looks as expected | a screenshot of the whole screen through KWin's ScreenShot2, compared with `tests/session/reference.png` |
+| The desktop looks as expected | a screenshot of the whole screen through KWin's ScreenShot2, compared with `tests/session/reference.png`; the same comparison must fail on the reference with a panel icon painted over |
 | Zero crashes | no core dump, no crash caught by KCrash in the session log, plasmashell keeps its process (KCrash would restart it) and the session runs until the end |
+| The checks themselves ran | `test_session.py` finished without an error; an exception shows as a failed row with its message |
 
 ### How it runs
 
@@ -57,20 +58,26 @@ on its own) and a custom 1280×800 mode in `kwinoutputconfig.json` (vkms prefers
 else in the session is the same. Without `SESSION_DRM_DEVICE`, `session.sh` uses `--virtual`, which
 also takes screenshots on a machine with a render node.
 
-The comparison leaves out two areas (`MASKS` in `test_session.py`): the panel clock and the
-pointer. A pixel counts as different when one of its channels differs by more than 24 (llvmpipe
-can round differently on different CPUs); the check fails when more than 0.1% of the compared
-pixels differ. The screenshot is taken once the screen stops changing (two captures a second apart
-are the same).
+The comparison leaves out two areas (`MASKS` in `test_session.py`): the pointer, and the panel clock
+together with the tray's "Show hidden icons" arrow to its left. The date in the clock is `d MM yyyy`,
+7 px narrower on days 1 to 9, which narrows the clock and moves the arrow by 8 px; both positions are
+inside the mask. A pixel counts as different when one of its channels differs by more than 24
+(llvmpipe can round differently on different CPUs), and the check fails when more than 40 pixels
+differ: runners have differed by 0 so far, a missing panel icon is several hundred. To keep that
+threshold honest, the same comparison runs on the reference with the Dolphin panel icon painted over,
+and must fail. The screenshot is taken once the desktop shows the test's wallpaper and two captures a
+second apart are the same.
 
 Every run uploads the `session` artifact: `screenshot.png`, `diff.png` (the reference dimmed,
 differing pixels red, masked areas outlined in blue), `summary.md`, `session.log` and the output
-configuration KWin ended up with. The job summary
+configuration KWin ended up with (`home/.config/kwinoutputconfig.json`). The job summary
 shows the table of checks.
 
 **The reference changes only in the pull request that changes the look**: take `screenshot.png`
 from that pull request's artifact, check it, and commit it as `tests/session/reference.png` with the
-change. Never update it to make an unrelated pull request green.
+change. The reviewer compares the old and the new `reference.png` in the pull request's file view
+(GitHub shows the two images side by side). Never update it to make an unrelated pull request green.
+A change that moves the panel icons also moves `PANEL_ICON` and `PANEL_POINT` in `test_session.py`.
 
 ### Crashes
 
@@ -96,9 +103,11 @@ out of podman's default store.
 
 ### Time
 
-On a GitHub-hosted `ubuntu-24.04` runner (x86_64), with the images in the Actions cache: about one
-minute for the whole job (restoring the 650 MB cache and loading the images about 30 s, the test
-about 20 s). The cache key is the hash of the Containerfiles and `apt-snapshot.sh`; when it changes,
-the images are built from snapshot.debian.org first (about 9 minutes for the whole job, most of it
-downloading the desktop packages) and cached for the next runs. The podman store is on `/mnt`, the
-larger disk on some runner images.
+Measured on GitHub-hosted `ubuntu-24.04` runners (x86_64): with the images in the Actions cache,
+about 1.5 minutes for the whole job (90 to 102 s: installing `linux-modules-extra` about 30 s,
+restoring the 650 MB cache and loading the images about 30 s, the test about 30 s). The cache key is
+the hash of the Containerfiles and `apt-snapshot.sh`; when it changes or the cache is gone, the
+images are built from snapshot.debian.org first, which took 9 to 12.5 minutes for the whole job
+(the desktop packages alone 8 to 11 minutes, depending on the mirror's speed). **A cache miss can
+therefore take the job past 10 minutes**; the next runs use the cache. The podman store is on `/mnt`,
+the larger disk on some runner images.
