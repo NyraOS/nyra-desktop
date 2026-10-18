@@ -20,5 +20,6 @@ suite=$(sed -n '/^Suite: /{s///p;q}' "$inrel")
 [ "$suite" = unstable ] || { echo "InRelease Suite '$suite' is not unstable" >&2; exit 1; }
 want=$(date -u -d "$(echo "$snapshot" | sed -E 's/^(....)(..)(..)T(..)(..)(..)Z$/\1-\2-\3T\4:\5:\6Z/')" +%s)
 rel=$(sed -n '/^Date: /{s///p;q}' "$inrel")
+test -n "$rel"
 got=$(date -u -d "$rel" +%s)
 [ "$got" -le "$want" ] && [ "$got" -gt $((want - 43200)) ] || { echo "InRelease Date '$rel' is not within 12 h before snapshot $snapshot" >&2; exit 1; }
