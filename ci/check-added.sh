@@ -72,10 +72,13 @@ fi
 # vkms is a virtual display (the session test loads it on the CI host only): a rule, unit or module
 # list that names it would put it on every desktop.
 vk=()
-for d in etc usr/lib/udev usr/lib/systemd usr/lib/modules-load.d usr/lib/modprobe.d usr/lib/tmpfiles.d; do
-  if sudo test -d "$m/$d"; then vk+=("$m/$d"); fi
+# The directories of configuration, not all of /etc: its certificate bundle is base64 text that can
+# contain any four letters.
+for d in etc/udev etc/systemd etc/modules-load.d etc/modprobe.d etc/tmpfiles.d etc/modules usr/lib/udev usr/lib/systemd \
+    usr/lib/modules-load.d usr/lib/modprobe.d usr/lib/tmpfiles.d; do
+  if sudo test -e "$m/$d"; then vk+=("$m/$d"); fi
 done
-absent "vkms is named in the image's configuration (the files above)" -rIli vkms "${vk[@]}"
+absent "vkms is named in the image's configuration (the lines above)" -rIinw vkms "${vk[@]}"
 
 # A rule that sets the mode, group or owner of a DRM device, or tags it for the logged-in user, would
 # give every local program the GPU: the render nodes stay as the base makes them. Only the rule files
