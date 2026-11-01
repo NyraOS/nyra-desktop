@@ -62,6 +62,25 @@ RUN --mount=type=bind,from=base,target=/base --mount=type=tmpfs,dst=/tmp \
 RUN rm /usr/share/dbus-1/system-services/org.kde.drkonqi.service /usr/share/dbus-1/system.d/org.kde.drkonqi.conf \
       /usr/share/polkit-1/actions/org.kde.drkonqi.policy /usr/lib/x86_64-linux-gnu/libexec/kf6/drkonqi-polkit-helper
 
+# FireWire audio interfaces (libffado2, which the JACK client library pulls in): the rule only puts them
+# in the audio group, and nothing in the desktop uses FireWire audio. rm without -f, as above.
+RUN rm /usr/lib/udev/rules.d/60-ffado.rules
+
+# CUPS listens on its local socket only (docs/IMAGE.md, "Printing"): Debian's cupsd.conf also has
+# "Listen localhost:631", which cupsd opens next to the socket systemd gives it, and turns on the web
+# interface and DNS-SD browsing. The service starts with this copy instead of /etc/cups/cupsd.conf (a
+# drop-in puts it in /etc/cups at every start, so a machine with an empty /etc gets it too), and grep
+# fails the build when Debian's file changes shape.
+RUN mkdir -p /usr/lib/nyra/cups && \
+    sed -e '/^Listen localhost:631$/d' -e 's/^Browsing Yes$/Browsing No/' \
+        -e 's/^BrowseLocalProtocols dnssd$/BrowseLocalProtocols none/' -e 's/^WebInterface Yes$/WebInterface No/' \
+        /etc/cups/cupsd.conf > /usr/lib/nyra/cups/cupsd.conf && \
+    grep -qx 'Listen /run/cups/cups.sock' /usr/lib/nyra/cups/cupsd.conf && \
+    grep -qx 'Browsing No' /usr/lib/nyra/cups/cupsd.conf && \
+    grep -qx 'BrowseLocalProtocols none' /usr/lib/nyra/cups/cupsd.conf && \
+    grep -qx 'WebInterface No' /usr/lib/nyra/cups/cupsd.conf && \
+    ! grep -Eq '^[[:space:]]*(Listen|Port|SSLListen|SSLPort)[[:space:]]+[^/]' /usr/lib/nyra/cups/cupsd.conf
+
 # Accounts (docs/IMAGE.md): a system user or group that a package made must also be in
 # /usr/lib/sysusers.d, so systemd-sysusers makes it on a machine whose /etc is older than the image
 # (an update keeps the machine's /etc/passwd) or empty (settings reset). SDDM's state directory comes

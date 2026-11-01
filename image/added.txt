@@ -51,3 +51,12 @@
 /usr/lib/udev/rules.d/65-libwacom.rules
 /usr/lib/udev/rules.d/80-libinput-device-groups.rules
 /usr/lib/udev/rules.d/90-libinput-fuzz-override.rules
+
+# cups: the PAM stack for a password a user types to an administrative request (lpadmin group or root).
+# cupsd listens on its local socket only (Containerfile), so no one reaches it from the network.
+/etc/pam.d/cups
+
+# PipeWire's ALSA card quirks: tags (ACP_PROFILE_SET, ACP_IGNORE) for sound cards and USB headsets that
+# need another profile. They set no owner, group or mode. (libffado2's rule for FireWire audio is not here:
+# the Containerfile removes it.)
+/usr/lib/udev/rules.d/90-pipewire-alsa.rules

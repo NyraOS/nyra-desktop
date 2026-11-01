@@ -75,6 +75,14 @@ needs a decision first). The build fails on a link the list does not name. DrKon
 helper (`org.kde.drkonqi`) is removed in the `Containerfile`: D-Bus would start it on demand for any
 local user, and nothing in the desktop uses it.
 
+## Printing
+
+cups listens on its local socket only (`/run/cups/cups.sock`, from `cups.socket`): no TCP port, not even
+on localhost, no web interface, no DNS-SD browsing (cups-browsed and Avahi are not in the image).
+Debian's `cupsd.conf` says otherwise, so `cups.service` starts `cupsd` with a copy of it made in the
+Containerfile (`/usr/lib/nyra/cups/cupsd.conf`; a drop-in copies it to `/etc/cups/nyra-cupsd.conf` and starts `cupsd` with it). The VM test checks that
+nothing listens on port 631. Printers on the network are used as clients (IPP, driverless).
+
 ## Login screen
 
 SDDM's settings are `/usr/lib/sddm/sddm.conf.d/10-nyra.conf`: the login screen on KWin (Wayland, no X

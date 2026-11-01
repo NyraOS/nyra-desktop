@@ -133,7 +133,7 @@ tablet, 2 vCPUs and 2 GiB.
 | It stays up | the same `plasmashell` process and KWin after 90 s; a screenshot, `plasma-session.png` (with llvmpipe the first panel takes about a minute) |
 | No crash | no KCrash, core dump or segfault in the journal |
 | An SD card is mounted by itself | the VM has an SD card (a FAT image, label `NYRASD`) on an SDHCI controller; with Plasma's device automounter on for the test user, it is mounted at `/run/media/nyratest/NYRASD` (udisks2) and the user can write to it |
-| A page printed arrives | cups makes a driverless (IPP Everywhere) queue for a virtual printer, `ippeveprinter` on the host, which the guest reaches at `10.0.2.2`; `lp` prints a text page, cups' filters make a raster of it, and the host finds the job's file; the queue shows the job as completed |
+| A page printed arrives | cups makes a driverless (IPP Everywhere) queue for a virtual printer, `ippeveprinter` on the host, which the guest reaches at `10.0.2.2`; `lp` prints a text page, cups' filters make a raster of it, and the host finds the job's file; the queue shows the job as completed; cupsd listens on the local socket only (no TCP or UDP port 631) |
 | Sound plays and records | the VM has an HDA sound card; PipeWire in the user's session has an `alsa_output` and an `alsa_input` node, `pw-play` plays a two-second tone and `pw-record` records three seconds |
 | An H.264 video decodes | `ffmpeg` decodes the clip on the SD card (`tests/vm/fixtures/h264.mp4`, 10 frames of 128x96, High profile) with its native `h264` decoder; the SHA-256 of the raw frames is the one in `plasma.sh` |
 
