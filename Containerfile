@@ -79,7 +79,7 @@ RUN mkdir -p /usr/lib/nyra/cups && \
     grep -qx 'Browsing No' /usr/lib/nyra/cups/cupsd.conf && \
     grep -qx 'BrowseLocalProtocols none' /usr/lib/nyra/cups/cupsd.conf && \
     grep -qx 'WebInterface No' /usr/lib/nyra/cups/cupsd.conf && \
-    ! grep -Eq '^[[:space:]]*(Listen|Port|SSLListen|SSLPort)[[:space:]]+[^/]' /usr/lib/nyra/cups/cupsd.conf
+    ! grep -Eiq '^[[:space:]]*(Listen|Port|SSLListen|SSLPort)[[:space:]]+[^/]' /usr/lib/nyra/cups/cupsd.conf
 
 # Accounts (docs/IMAGE.md): a system user or group that a package made must also be in
 # /usr/lib/sysusers.d, so systemd-sysusers makes it on a machine whose /etc is older than the image

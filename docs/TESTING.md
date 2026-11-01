@@ -132,14 +132,26 @@ tablet, 2 vCPUs and 2 GiB.
 | A Plasma session starts | a test user (`nyratest`), logged in by SDDM's autologin, set for the test only in `/etc/sddm.conf.d`: a logind session of type `wayland`, active, with `plasmashell` and `kwin_wayland` |
 | It stays up | the same `plasmashell` process and KWin after 90 s; a screenshot, `plasma-session.png` (with llvmpipe the first panel takes about a minute) |
 | No crash | no KCrash, core dump or segfault in the journal |
-| An SD card is mounted by itself | the VM has an SD card (a FAT image, label `NYRASD`) on an SDHCI controller; with Plasma's device automounter on for the test user, it is mounted at `/run/media/nyratest/NYRASD` (udisks2) and the user can write to it |
+| An SD card is mounted by itself | the VM has an SD card (a FAT image, label `NYRASD`) on an SDHCI controller; with Plasma's device automounter on for the test user, it is mounted at `/run/media/nyratest/NYRASD` (udisks2) with `noexec`, `nosuid` and `nodev` (the base's udev rule `90-nyra-udisks.rules` sets them; the test fails without them) and the user can write to it |
 | A page printed arrives | cups makes a driverless (IPP Everywhere) queue for a virtual printer, `ippeveprinter` on the host, which the guest reaches at `10.0.2.2`; `lp` prints a text page, cups' filters make a raster of it, and the host finds the job's file; the queue shows the job as completed; cupsd listens on the local socket only (no TCP or UDP port 631) |
-| Sound plays and records | the VM has an HDA sound card; PipeWire in the user's session has an `alsa_output` and an `alsa_input` node, `pw-play` plays a two-second tone and `pw-record` records three seconds |
+| Sound plays and records | the VM has an HDA sound card; PipeWire in the user's session has an `alsa_output` and an `alsa_input` node, `pw-play` plays a two-second tone while `pw-record` records the sink's monitor, and the recording must have a peak above -40 dB (silence fails); `pw-record` also records three seconds from the source |
 | An H.264 video decodes | `ffmpeg` decodes the clip on the SD card (`tests/vm/fixtures/h264.mp4`, 10 frames of 128x96, High profile) with its native `h264` decoder; the SHA-256 of the raw frames is the one in `plasma.sh` |
 
+**The H.264 clip** (`tests/vm/fixtures/h264.mp4`, 3 KB) is our own: generated for this test, test only, never shipped (the
+Containerfile copies only `image/files/usr`). The command, run with Debian testing's `ffmpeg` (libx264):
+
+```bash
+ffmpeg -v error -y -f lavfi -i testsrc=size=128x96:rate=10:duration=1 -c:v libx264 -profile:v high \
+  -pix_fmt yuv420p -preset veryslow -crf 28 -bf 2 -g 10 -an -movflags +faststart h264.mp4
+```
+
+The hash in `plasma.sh` is the SHA-256 of its decoded frames (`ffmpeg -i h264.mp4 -map 0:v -c:v rawvideo
+-pix_fmt yuv420p -f hash -hash sha256 -`); a new clip needs a new hash.
+
 **What these four do not prove.** The sound card has no host backend (`-audiodev none`): the test shows
-that PipeWire makes a sink and a source of it and that streams run, not that sound comes out of a real
-card, and the recording is silence. Video is decoded in software: hardware decoding (VA-API) needs a
+that PipeWire makes a sink and a source of it and that streams run, and that what is played reaches the
+sink (its monitor hears the tone), not that sound comes out of a real card; the source's own recording is
+silence, so only its size is checked. Video is decoded in software: hardware decoding (VA-API) needs a
 GPU, which a CI VM does not have. SD cards on other controllers (Realtek card readers), exFAT and NTFS
 cards, and a real printer or a driver the printer needs are not covered either. The printer's job is
 checked by the file the virtual printer keeps, not by the paper. The test-only settings (the
