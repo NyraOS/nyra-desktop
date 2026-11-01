@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The setuid, setgid and capability files the desktop adds to the base (ci/check-privileged.sh), as
+# "PATH MODE" or "PATH CAPABILITIES", with the reason above each.
+# KWin raises its own scheduling priority for smooth frames (Debian's package sets the capability).
+/usr/bin/kwin_wayland cap_sys_nice=ep

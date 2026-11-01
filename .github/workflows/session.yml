@@ -32,8 +32,11 @@ jobs:
       # run.sh mounts. The podman store goes to /mnt, the larger disk on some runner images.
       - name: Prepare the runner (vkms, core dumps, podman store)
         run: |
-          sudo apt-get install -y -q "linux-modules-extra-$(uname -r)" >/dev/null
-          sudo modprobe vkms
+          # Newer runner kernels ship vkms in the main modules package and have no -extra one.
+          if ! sudo modprobe vkms; then
+            sudo apt-get install -y -q "linux-modules-extra-$(uname -r)" >/dev/null
+            sudo modprobe vkms
+          fi
           # udev sets the node to root:video 0660 when it gets to it: wait for that, then open it up.
           sudo udevadm settle
           for d in /dev/dri/card*; do

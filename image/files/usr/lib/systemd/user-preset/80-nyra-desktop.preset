@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# nyra-desktop: user units of the desktop's packages that stay off (image/units.list, docs/IMAGE.md
+# "Services"): DrKonqi's crash reports, which need systemd-coredump (not in the base) and are sent to
+# KDE, which needs a decision first.
+disable drkonqi-coredump-cleanup.service
+disable drkonqi-coredump-cleanup.timer
+disable drkonqi-coredump-launcher.socket
+disable drkonqi-coredump-pickup.service
+disable drkonqi-sentry-postman.path
+disable drkonqi-sentry-postman.timer

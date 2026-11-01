@@ -35,8 +35,9 @@ requests; until then a red run is looked at, not ignored, and a flaky one is a b
 - Both containers are rootless podman; uid 1000 in both is the user who runs the test. The desktop
   container gets `CAP_SYS_NICE` in its bounding set: `kwin_wayland` carries that file capability,
   and the kernel refuses to run a file whose capabilities it cannot grant.
-- **The desktop image is a parameter** (`DESKTOP_IMAGE`). Until the real desktop image of this
-  repository exists, `desktop.Containerfile` builds a throwaway one: Debian unstable at the
+- **The desktop image is a parameter** (`DESKTOP_IMAGE`). The session test still runs on a throwaway
+  one, which `desktop.Containerfile` builds (moving it to the real image, `docs/IMAGE.md`, is a change
+  of its own): Debian unstable at the
   snapshot date of nyra-base (`apt-snapshot.sh`), with `plasma-desktop`, `plasma-workspace`,
   `kwin-wayland`, `konsole`, `dolphin`, `at-spi2-core`, a font and Mesa, without recommends. When the
   real image exists, CI passes it instead and `desktop.Containerfile` goes away. (A bootc image has
@@ -111,3 +112,34 @@ images are built from snapshot.debian.org first, which took 9 to 12.5 minutes fo
 (the desktop packages alone 8 to 11 minutes, depending on the mirror's speed). **A cache miss can
 therefore take the job past 10 minutes**; the next runs use the cache. The podman store is on `/mnt`,
 the larger disk on some runner images.
+
+## Level 2: the image boots (every pull request, in a VM)
+
+`tests/vm/plasma.sh`, the `boot` job of `.github/workflows/image.yml`, installs the image that the
+`build` job made (`docs/IMAGE.md`) to a disk with `bootc install to-disk`, as nyra-base's own tests do,
+and boots it in QEMU with KVM, UEFI and Secure Boot: shim, then systemd-boot, then the desktop's UKI,
+signed with the run's key, which the test enrolls as a MOK. It uses nyra-base's VM tools from the
+checkout of the pinned base (`tools/vm/install-disk.sh`, `test-addon.sh`, `vm-boot.py`): a test console
+on the serial port (a root shell from systemd credentials, through an add-on signed with a second key
+of the run), commands run there, the serial log saved. The VM has a virtio GPU, a USB keyboard and
+tablet, 2 vCPUs and 2 GiB.
+
+| Check | How |
+|---|---|
+| Secure Boot is on | `mokutil --sb-state`, and the sealed command line with the composefs digest |
+| The system is up | `systemctl is-system-running --wait` is `running`, no failed unit |
+| The login screen shows | `sddm.service` active, its greeter and KWin running as the user `sddm`; a screenshot, `login-screen.png` |
+| A Plasma session starts | a test user (`nyratest`), logged in by SDDM's autologin, set for the test only in `/etc/sddm.conf.d`: a logind session of type `wayland`, active, with `plasmashell` and `kwin_wayland` |
+| It stays up | the same `plasmashell` process and KWin after 90 s; a screenshot, `plasma-session.png` (with llvmpipe the first panel takes about a minute) |
+| No crash | no KCrash, core dump or segfault in the journal |
+
+The memory of SDDM and of its login screen and the services running at the login screen are printed in
+the job summary. The screenshots and the serial log are the `desktop-boot` artifact. The login screen
+is checked by its processes and its screenshot, not by typing a password into it.
+
+Running it on a machine with KVM, root and nyra-base checked out at the pinned commit (the build job's
+`ci/build-image.sh` gives the image and `WORK/uki.crt`):
+
+```bash
+tests/vm/plasma.sh ../nyra-base localhost/nyra-desktop:ci /var/tmp/build/uki.crt /var/tmp/vm /var/tmp/vm/logs /var/tmp/vm/summary.md
+```

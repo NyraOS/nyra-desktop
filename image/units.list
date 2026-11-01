@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Every unit link that the package scripts of the desktop's packages make in /etc/systemd, and what
+# the image does with it (image/units.sh; docs/IMAGE.md, "Services"). The image configures nothing in
+# /etc, which is the user's and kept across updates:
+#   usr  the same link in /usr/lib/systemd, so the unit is on with an empty /etc too
+#   off  removed; our preset (80-nyra-desktop.preset) disables the unit, so the first boot does not
+#        enable it again
+# The build fails on a link that is not listed here, and on a listed one that no package made.
+system/display-manager.service                                    usr  SDDM is the display manager: the login screen, at boot
+system/graphical.target.wants/accounts-daemon.service             off  D-Bus starts it when a program asks (SDDM's user list)
+system/systemd-coredump@.service.wants/drkonqi-coredump-processor@.service  off  DrKonqi's crash reports need systemd-coredump, which the base does not have
+user/plasma-core.target.wants/plasma-ksmserver.service            usr  the Plasma session's session manager
+user/plasma-core.target.wants/plasma-plasmashell.service          usr  the Plasma session's shell: desktop and panel
+user/plasma-workspace.service                                     usr  the name the Plasma session starts its kcminit unit by
+user/default.target.wants/drkonqi-coredump-cleanup.service        off  DrKonqi's crash reports (above)
+user/default.target.wants/drkonqi-sentry-postman.path             off  DrKonqi sends crash reports to KDE: not without a decision
+user/plasma-core.target.wants/drkonqi-coredump-pickup.service     off  DrKonqi's crash reports (above)
+user/plasma-core.target.wants/drkonqi-sentry-postman.path         off  DrKonqi sends crash reports to KDE (above)
+user/plasma-core.target.wants/drkonqi-sentry-postman.timer        off  DrKonqi sends crash reports to KDE (above)
+user/sockets.target.upholds/drkonqi-coredump-launcher.socket      off  DrKonqi's crash reports (above)
+user/sockets.target.wants/drkonqi-coredump-launcher.socket        off  DrKonqi's crash reports (above)
+user/timers.target.wants/drkonqi-coredump-cleanup.timer           off  DrKonqi's crash reports (above)
+user/timers.target.wants/drkonqi-sentry-postman.timer             off  DrKonqi sends crash reports to KDE (above)

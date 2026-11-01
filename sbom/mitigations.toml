@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Exceptions for the desktop image's vulnerability scan (ci/sbom.sh, docs/IMAGE.md "SBOM"), in the
+# format of nyra-base's tools/sbom/mitigations.toml: id, package, reason, expires (at most 90 days ahead).
+# The base's exceptions never apply here: their reasons hold for the base's configuration (for example,
+# that no image from outside is ever decoded), which a desktop changes. None yet: every finding of the
+# image, the base's packages included, is in the report.

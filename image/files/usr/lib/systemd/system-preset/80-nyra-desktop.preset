@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# nyra-desktop: system units of the desktop's packages that stay off (image/units.list, docs/IMAGE.md
+# "Services"). systemd applies presets at the first boot, which would enable them otherwise.
+# accounts-daemon: D-Bus starts it when a program asks.
+disable accounts-daemon.service
+# DrKonqi's crash report processor: it needs systemd-coredump, which the base does not have.
+disable drkonqi-coredump-processor@.service

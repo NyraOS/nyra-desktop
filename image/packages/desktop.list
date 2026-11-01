@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The Debian packages the desktop adds to nyra-base, one per line: the package, then why it is here.
+# apt installs them without recommends from the snapshot of the pinned base (docs/IMAGE.md); their
+# dependencies come with them and are listed in the SBOM. A package enters only with a reason.
+sddm                  the login screen (display manager), started at boot
+sddm-theme-breeze     the look of the login screen, Plasma's own (Breeze)
+kwin-wayland          the compositor of the Plasma session, and of the login screen (Wayland, no X server)
+plasma-workspace      the Plasma session: plasmashell, startplasma-wayland and the session SDDM offers
+plasma-desktop        the desktop itself: panel, application launcher, desktop and task manager
+qt6-wayland           Qt's Wayland platform plugin, which every Qt program of the session needs
+dbus-user-session     the user's D-Bus session bus, started by systemd, which the Plasma session uses
+konsole               the terminal, the one KDE application that stays in the desktop
+fonts-noto-core       Noto Sans, Plasma's default font
+libgl1-mesa-dri       Mesa's OpenGL drivers, with llvmpipe for machines without a GPU driver
+libegl-mesa0          Mesa's EGL, which KWin renders with
