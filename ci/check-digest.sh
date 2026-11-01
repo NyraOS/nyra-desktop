@@ -22,20 +22,22 @@ if [ "${#efi[@]}" != 1 ] || [[ "${efi[0]}" != *.efi ]]; then
   echo "check-digest.sh: expected exactly one UKI in the image, found: ${efi[*]}" >&2
   exit 1
 fi
-got="$(sudo python3 -I - "${efi[0]}" <<'PY'
+# Every command line (one per profile) must have exactly one composefs= and it must be the image's: the
+# comparison is in Python, so that a profile without one cannot disappear in a shell substitution.
+sudo python3 -I - "${efi[0]}" "$want" <<'PY'
 import re, sys, pefile
 pe = pefile.PE(sys.argv[1])
+want = sys.argv[2]
 lines = [s.get_data().rstrip(b"\0").decode() for s in pe.sections if s.Name.rstrip(b"\0") == b".cmdline"]
 if not lines:
-    sys.exit("no .cmdline section")
+    sys.exit("check-digest.sh: the UKI has no .cmdline section")
+print("Image:", want)
+bad = 0
 for line in lines:
-    print(" ".join(re.findall(r"(?:^| )composefs=(\S+)", line)))
+    got = re.findall(r"(?:^| )composefs=(\S*)", line)
+    print("UKI:  ", got)
+    if got != [want]:
+        bad += 1
+if bad:
+    sys.exit(f"check-digest.sh: {bad} of {len(lines)} UKI command lines do not carry exactly the digest of the image")
 PY
-)"
-echo "Image:  $want"
-echo "UKI:    $(echo "$got" | tr '\n' ' ')"
-# Every profile has exactly one composefs= and it is the image's.
-if [ -z "$got" ] || [ "$(echo "$got" | grep -vcx "$want")" != 0 ]; then
-  echo "check-digest.sh: the UKI's command lines do not all carry the digest of the image" >&2
-  exit 1
-fi

@@ -107,13 +107,14 @@ Besides the steps above, the build fails when:
   `/etc/passwd`, so systemd-sysusers must make it);
 - the copy of the AppArmor profiles in `/usr` is not the image's `/etc/apparmor.d`;
 - the image has an SSH host key in any layer (nyra-base's `ci/no-host-keys.py`);
-- the polkit actions and rules, system D-Bus services and policy, and PAM stacks the desktop adds to
-  the base are not exactly the files `image/added.txt` lists, with the reason for each
-  (`ci/check-added.sh`). These are the root programs a local user can start (D-Bus activation) and the
-  rules that say who may; a package update that adds one fails the build until someone has read it;
+- the polkit actions and rules, system D-Bus services and policy, PAM stacks and udev rules that the
+  desktop adds to the base, or changes in it (by content, not only by name), are not exactly the files
+  `image/added.txt` lists, with the reason for each (`ci/check-added.sh`). These are the root programs
+  a local user can start (D-Bus activation) and the rules that say who may; a package update that adds
+  or edits one fails the build until someone has read it;
 - a test-only setting of the session test (`docs/TESTING.md`) is in a text file under `/usr` or `/etc`
-  or in the image's environment, a udev rule or module list names `vkms`, or a udev rule the desktop
-  adds sets the mode, group or owner of a DRM device (`ci/check-added.sh`);
+  or in the image's environment, a udev rule, unit or module list names `vkms`, or a udev rule the desktop
+  adds or changes sets the mode, group or owner of a DRM device (`ci/check-added.sh`);
 - a command line of the UKI carries another composefs digest than the one `bootc container
   compute-composefs-digest` computes for the built image (`ci/check-digest.sh`; the boot test only
   checks the digest's form).

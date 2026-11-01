@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# The polkit, system D-Bus and PAM files the desktop adds to the base (ci/check-added.sh), one path per
-# line, with the reason above each group. A D-Bus service with User=root is a root program that any
+# The polkit, system D-Bus, PAM and udev files the desktop adds to the base, or changes in it
+# (ci/check-added.sh), one path per line, with the reason above each group. A D-Bus service with User=root is a root program that any
 # local user can start on demand; polkit decides who may use it. DrKonqi's helper (org.kde.drkonqi) is
 # not here on purpose: the Containerfile removes it.
 
@@ -43,3 +43,11 @@
 /etc/pam.d/sddm
 /etc/pam.d/sddm-autologin
 /etc/pam.d/sddm-greeter
+
+# Input devices, for the Plasma session: the keyboard layout of an X-style device (xkb), the touchpad
+# and tablet database (libwacom) and libinput's device grouping and fuzz settings. None touches the
+# GPU (ci/check-added.sh checks that too).
+/usr/lib/udev/rules.d/64-xorg-xkb.rules
+/usr/lib/udev/rules.d/65-libwacom.rules
+/usr/lib/udev/rules.d/80-libinput-device-groups.rules
+/usr/lib/udev/rules.d/90-libinput-fuzz-override.rules
