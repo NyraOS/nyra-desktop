@@ -55,6 +55,13 @@ RUN --mount=type=bind,from=base,target=/base --mount=type=tmpfs,dst=/tmp \
     test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service && \
     test -f /usr/share/wayland-sessions/plasma.desktop && test -f /usr/share/sddm/themes/breeze/metadata.desktop
 
+# DrKonqi's root helper (docs/IMAGE.md, "Services"): its D-Bus service file starts a program as root on
+# demand, for any local user who asks the system bus, to write a crash report's data, and crash reports
+# are off. Its service file, bus policy, polkit action and program go; rm without -f, so the build also
+# fails when a package update moves one of them. (ci/check-added.sh fails if the service comes back.)
+RUN rm /usr/share/dbus-1/system-services/org.kde.drkonqi.service /usr/share/dbus-1/system.d/org.kde.drkonqi.conf \
+      /usr/share/polkit-1/actions/org.kde.drkonqi.policy /usr/lib/x86_64-linux-gnu/libexec/kf6/drkonqi-polkit-helper
+
 # Accounts (docs/IMAGE.md): a system user or group that a package made must also be in
 # /usr/lib/sysusers.d, so systemd-sysusers makes it on a machine whose /etc is older than the image
 # (an update keeps the machine's /etc/passwd) or empty (settings reset). SDDM's state directory comes
