@@ -12,15 +12,23 @@
 # with the other files of WORKDIR/secure-boot. Never use a real key here.
 # The test user logs in through SDDM's autologin, set for the test only in /etc/sddm.conf.d: the login
 # screen itself is checked by its greeter running and by its screenshot, not by typing a password.
+# Then one test per category of the image's packages (docs/TESTING.md): an SD card that is mounted by
+# itself, a page printed to a virtual IPP printer, sound played and recorded through PipeWire, and an
+# H.264 video decoded. The devices are the VM's (an SD card on an SDHCI controller, an HDA sound card
+# without a host backend); the printer is ippeveprinter on the host, which the guest reaches at QEMU's
+# 10.0.2.2. They need cups-ipp-utils and avahi-daemon (ippeveprinter registers with it), dosfstools
+# and mount on the host. Everything these tests set is set in the VM at run time, never in the image.
 set -euo pipefail
 
+here="$(dirname "$(realpath "$0")")"
 base_src="$(realpath "$1")" image="$2" uki_cert="$(realpath "$3")" work="$(realpath "$4")"
 logs="$(realpath "$5")" summary="$(realpath -m "$6")"
 sb="$work/secure-boot"
 mnt="$sb/esp"
 loop=""
 mkdir -p "$mnt" "$logs"
-trap 'sudo umount -q "$mnt" 2>/dev/null || true; [ -z "$loop" ] || sudo losetup -d "$loop" || true; rm -rf "$sb"' EXIT
+ipp=""
+trap 'sudo umount -q "$mnt" 2>/dev/null || true; [ -z "$loop" ] || sudo losetup -d "$loop" || true; [ -z "$ipp" ] || kill "$ipp" 2>/dev/null || true; rm -rf "$sb"' EXIT
 # nyra-base's scripts call each other by paths relative to its checkout.
 cd "$base_src"
 
@@ -56,6 +64,20 @@ sudo umount "$mnt"
 sudo losetup -d "$loop"
 loop=""
 
+# The SD card: a FAT card with the label NYRASD and the test clip on it (copied through a loop mount,
+# the same way the ESP is written above).
+sd="$sb/sd.img"
+truncate -s 64M "$sd"
+mkfs.vfat -n NYRASD "$sd" >/dev/null
+sudo mount -o loop,uid="$(id -u)" "$sd" "$mnt"
+cp "$here/fixtures/h264.mp4" "$mnt/"
+sudo umount "$mnt"
+
+# The virtual IPP printer: it keeps every document it gets in WORKDIR/printed (-k).
+mkdir -p "$sb/printed"
+ippeveprinter -d "$sb/printed" -k -p 8631 "Nyra test printer" >"$logs/ippeveprinter.log" 2>&1 &
+ipp=$!
+
 # Guest commands. wait_for CMD: up to 120 s for CMD to succeed.
 wait_for='w() { for _ in $(seq 60); do if eval "$1"; then return 0; fi; sleep 2; done; eval "$1"; }; w'
 # The greeter has made its window ("Adding view for <output>"); with llvmpipe it paints the theme some
@@ -63,11 +85,22 @@ wait_for='w() { for _ in $(seq 60); do if eval "$1"; then return 0; fi; sleep 2;
 greeter='pgrep -u sddm -f "^/usr/bin/sddm-greeter-qt6 " >/dev/null && pgrep -u sddm -x kwin_wayland >/dev/null && journalctl -b -q -t sddm-greeter-qt6 | grep -q "Adding view for"'
 session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value)" = wayland ] && [ "$(loginctl show-session "$s" -p Active --value)" = yes ] && pgrep -u nyratest -x plasmashell >/dev/null'
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
+# Plasma's device automounter (plasma-desktop), switched on for the test user only: it is off by default.
+automount='[General]\nAutomountEnabled=true\nAutomountOnLogin=true\nAutomountOnPlugin=true\nAutomountUnknownDevices=true\n'
+# A command as the test user, with the runtime directory of its session (PipeWire's socket is there).
+u='runuser -u nyratest -- env XDG_RUNTIME_DIR=/run/user/$(id -u nyratest)'
+card=/run/media/nyratest/NYRASD
+# What ffmpeg's decoder must make of tests/vm/fixtures/h264.mp4: 10 frames of 128x96, and their SHA-256
+# as raw yuv420p (the H.264 decoder is bit-exact, so it does not depend on the ffmpeg version).
+clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout 300 \
   --qemu=-device --qemu=virtio-vga --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
+  --qemu=-drive --qemu="if=none,id=sd0,format=raw,file=$sd" \
+  --qemu=-device --qemu=sdhci-pci --qemu=-device --qemu=sd-card,drive=sd0 \
+  --qemu=-audiodev --qemu=none,id=snd0 --qemu=-device --qemu=intel-hda --qemu=-device --qemu=hda-duplex,audiodev=snd0 \
   --smbios "io.systemd.stub.kernel-cmdline-extra=console=ttyS0" \
   --qmp "$(shot login-screen)" --qmp "$(shot plasma-session)" \
   --log "$logs/serial-plasma.log" --summary "$summary" \
@@ -78,6 +111,15 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command 's="$(systemctl show getty@tty1.service -p LoadState --value)"; echo "getty@tty1: $s"; test "$s" = masked' \
   --command "systemctl is-active sddm.service && $wait_for '$greeter' && ps -o user=,rss=,args= -u sddm && sleep 30 && echo NYRA-SHOT-''login-screen && sleep 3" \
   --command 'systemctl show sddm.service -p MemoryCurrent; systemctl show user-$(id -u sddm).slice -p MemoryCurrent; systemctl is-enabled accounts-daemon.service; systemctl --no-pager list-units --type=service --state=running --no-legend --plain | cut -d" " -f1' \
-  --command "useradd -m -s /bin/bash nyratest && mkdir -p /etc/sddm.conf.d && printf '$autologin' > /etc/sddm.conf.d/99-nyra-test.conf && systemctl restart sddm.service && $wait_for '$session' && loginctl" \
+  --command "useradd -m -s /bin/bash nyratest && install -d -o nyratest -g nyratest ~nyratest/.config && printf '$automount' > ~nyratest/.config/kded_device_automounterrc && chown nyratest: ~nyratest/.config/kded_device_automounterrc && mkdir -p /etc/sddm.conf.d && printf '$autologin' > /etc/sddm.conf.d/99-nyra-test.conf && systemctl restart sddm.service && $wait_for '$session' && loginctl" \
   --command 'p="$(pgrep -u nyratest -x plasmashell)"; sleep 90; test "$(pgrep -u nyratest -x plasmashell)" = "$p" && pgrep -u nyratest -x kwin_wayland >/dev/null && echo "plasmashell $p and kwin_wayland run after 90 s" && ps -o rss=,args= -u nyratest | sort -rn | head -12 && echo NYRA-SHOT-"plasma-session" && sleep 3' \
+  --command "ls -l /dev/mmcblk0 && $wait_for 'findmnt -n $card' && findmnt -n -o SOURCE,TARGET,FSTYPE,OPTIONS $card && ls -l $card && $u sh -c 'echo nyra > $card/written && sync' && grep -qx nyra $card/written" \
+  --command "$wait_for 'ip route | grep -q ^default' && lpadmin -p virt -E -v ipp://10.0.2.2:8631/ipp/print -m everywhere && lpstat -p virt && printf 'A page for the printer.\n' > /tmp/page.txt && lp -d virt /tmp/page.txt && $wait_for 'lpstat -W completed -o virt | grep -q virt-1' && lpstat -W completed -o virt" \
+  --command "$wait_for '$u pw-cli ls Node | grep -q alsa_output && $u pw-cli ls Node | grep -q alsa_input' && $u wpctl status" \
+  --command "$u ffmpeg -nostdin -v error -f lavfi -i sine=frequency=440:duration=2 -ar 48000 -ac 2 /tmp/tone.wav && $u pw-play /tmp/tone.wav && echo played; $u timeout -s INT 3 pw-record --rate 48000 /tmp/rec.wav; ls -l /tmp/rec.wav; test \"\$(stat -c %s /tmp/rec.wav)\" -gt 48000" \
+  --command "v=\"\$($u ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,nb_frames -of csv=p=0 $card/h264.mp4)\"; echo \"\$v\"; test \"\$v\" = h264,10; h=\"\$($u ffmpeg -nostdin -v error -i $card/h264.mp4 -map 0:v -c:v rawvideo -pix_fmt yuv420p -f hash -hash sha256 -)\"; echo \"\$h\"; test \"\$h\" = SHA256=$clip_sha256" \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
+
+# The page the guest printed reached the printer on the host: a file of the job, not empty.
+{ echo; echo "Printed on the virtual printer (ippeveprinter):"; echo '```'; ls -l "$sb/printed"; echo '```'; } >> "$summary"
+test -n "$(find "$sb/printed" -type f -size +0 -print -quit)"

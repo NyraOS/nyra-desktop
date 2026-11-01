@@ -21,3 +21,14 @@ user/sockets.target.upholds/drkonqi-coredump-launcher.socket      off  DrKonqi's
 user/sockets.target.wants/drkonqi-coredump-launcher.socket        off  DrKonqi's crash reports (above)
 user/timers.target.wants/drkonqi-coredump-cleanup.timer           off  DrKonqi's crash reports (above)
 user/timers.target.wants/drkonqi-sentry-postman.timer             off  DrKonqi sends crash reports to KDE (above)
+system/sockets.target.wants/cups.socket                           usr  cups starts when a program or lp talks to its socket
+system/multi-user.target.wants/cups.path                          usr  cups.path only watches for jobs in the spool and starts cups for them
+system/multi-user.target.wants/cups.service                       off  started by its socket or path, not at boot
+system/printer.target.wants/cups.service                          off  the same, for the printer target
+user/default.target.wants/pipewire.service                        usr  the sound server runs in every login session
+user/sockets.target.wants/pipewire.socket                         usr  PipeWire's socket, so a program that wants sound finds it
+user/pipewire.service.wants/wireplumber.service                   usr  the session manager that makes devices of the sound cards, with PipeWire
+user/pipewire-session-manager.service                             usr  the name PipeWire starts its session manager by (an alias of wireplumber)
+user/default.target.wants/pipewire-pulse.service                  usr  the PulseAudio socket of PipeWire, which Plasma's volume control uses
+user/sockets.target.wants/pipewire-pulse.socket                   usr  the same, started on first use
+user/default.target.wants/filter-chain.service                    off  needs a configuration of audio filters, which nothing provides

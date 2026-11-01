@@ -35,6 +35,8 @@ the build (see "Packages").
 `image/packages/desktop.list` lists the packages the desktop adds, each with the reason it is there.
 The build (`Containerfile`) installs them in two steps, since the base has no apt:
 
+`ci/check-package-reasons.sh` fails the build job on a package without a reason, or listed twice.
+
 1. **fetch** (`image/fetch.sh`), in a throwaway Debian container at the base's snapshot: a dpkg status
    file that lists the base's packages as installed (their records from the snapshot's index), then apt
    resolves the list against it without recommends and downloads what is missing; apt checks every
@@ -59,6 +61,9 @@ Every service the desktop adds starts on demand, or is listed here with its cost
 |---|---|---|
 | `sddm.service` (display manager) | at boot, in `graphical.target` | the daemon about 9 MB; the login screen (KWin and the greeter, as the user `sddm`) about 650 MB with software rendering (llvmpipe; cgroup memory, page cache included), in the job summary of every run |
 | `accounts-daemon.service` | through D-Bus, when a program asks (the user list on the login screen) | only while used |
+| `cups.socket`, `cups.path` (printing) | the socket at boot, `cups.service` itself on the first connection or queued job | the socket and a path watcher only; the daemon while printing |
+| `pipewire.service`, `wireplumber.service`, `pipewire-pulse.service` (sound) | in every user session, from `default.target` | per logged-in user; their memory is in the job summary, in the process list of the session |
+| `udisks2.service` | through D-Bus, when a program asks (Plasma's device notifier, the automounter) | only while used |
 
 Debian's package scripts enable units through `/etc/systemd`, where the image configures nothing (`/etc`
 is the user's and kept across updates). `image/units.list` names every link they make and what happens
