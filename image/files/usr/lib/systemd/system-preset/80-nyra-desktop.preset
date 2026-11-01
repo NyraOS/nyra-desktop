@@ -5,3 +5,5 @@
 disable accounts-daemon.service
 # DrKonqi's crash report processor: it needs systemd-coredump, which the base does not have.
 disable drkonqi-coredump-processor@.service
+# cups: started by cups.socket and cups.path, when a program prints or a job is queued.
+disable cups.service

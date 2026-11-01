@@ -13,3 +13,12 @@ konsole               the terminal, the one KDE application that stays in the de
 fonts-noto-core       Noto Sans, Plasma's default font
 libgl1-mesa-dri       Mesa's OpenGL drivers, with llvmpipe for machines without a GPU driver
 libegl-mesa0          Mesa's EGL, which KWin renders with
+udisks2               mounts removable media (an SD card) for the logged-in user, under /run/media/<user>/<label>
+pipewire              the sound server, started per user by systemd on first use
+pipewire-bin          pw-cat (pw-play, pw-record), the command line player and recorder the audio test uses
+pipewire-pulse        PipeWire's PulseAudio socket, which Plasma's volume control and most programs talk to
+pipewire-alsa         routes programs that use ALSA directly through PipeWire
+wireplumber           PipeWire's session manager: makes a sink and a source of every sound card
+cups                  the print system (the scheduler, driverless IPP printers, lp, lpadmin)
+cups-filters          turns text and PDF into what a printer takes, so a page printed from any program arrives
+ffmpeg                the video decoders (H.264 and the rest of libavcodec); also what the video test decodes with
