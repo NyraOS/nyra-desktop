@@ -27,6 +27,11 @@ printf 'version=%s\ndigest=%s\ncommit=%s\narchitecture=amd64\n' "$version" "$dig
 # The runner's Ubuntu skopeo is built without Fulcio support and cannot check the keyless signature, so
 # the pull runs in Debian 13 (as nyra-base's own CI does), into a scratch storage; the verified image is
 # then loaded into the root storage as an OCI archive, which keeps its ID and creation time.
+# The verification tools (skopeo, podman) come from Debian's live trixie mirror, not from a snapshot, on
+# purpose: apt checks every package against the signed index, with the keyring of the pinned image,
+# and the tools are the code that decides whether the base is genuine, so they should carry the
+# security fixes Debian ships after any date we could pin (a snapshot would freeze a verifier with
+# known bugs). It is nyra-base's own choice in its CI.
 debian=mirror.gcr.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 scratch="$(sudo mktemp -d /mnt/pull-base.XXXXXX)"
 trap 'sudo rm -rf "$scratch"' EXIT
