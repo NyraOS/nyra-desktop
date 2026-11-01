@@ -80,6 +80,12 @@ jobs:
       - name: No new setuid, setgid or capability files (ci/check-privileged.sh, image/privileged.txt)
         run: ci/check-privileged.sh localhost/nyra-desktop:ci "$BASE_ID"
 
+      - name: Only the polkit, D-Bus and PAM files that image/added.txt lists, no test-only settings (ci/check-added.sh)
+        run: ci/check-added.sh localhost/nyra-desktop:ci "$BASE_ID"
+
+      - name: The UKI carries the composefs digest of the image (ci/check-digest.sh)
+        run: ci/check-digest.sh localhost/nyra-desktop:ci
+
       - name: Export the image
         id: export
         run: |

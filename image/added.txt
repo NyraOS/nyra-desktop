@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The polkit, system D-Bus and PAM files the desktop adds to the base (ci/check-added.sh), one path per
+# line, with the reason above each group. A D-Bus service with User=root is a root program that any
+# local user can start on demand; polkit decides who may use it. DrKonqi's helper (org.kde.drkonqi) is
+# not here on purpose: the Containerfile removes it.
+
+# accountsservice: the login screen's user list; changing users is for administrators (polkit)
+/usr/share/polkit-1/actions/org.freedesktop.accounts.policy
+/usr/share/dbus-1/system-services/org.freedesktop.Accounts.service
+/usr/share/dbus-1/system.d/org.freedesktop.Accounts.conf
+
+# SDDM: who may own org.freedesktop.DisplayManager on the system bus
+/usr/share/dbus-1/system.d/sddm_org.freedesktop.DisplayManager.conf
+
+# KDE's KAuth: the policy of every KAuth helper below
+/usr/share/dbus-1/system.d/org.kde.kf6auth.conf
+
+# Plasma's font installer: installs fonts for all users, polkit-gated
+/usr/share/polkit-1/actions/org.kde.fontinst.policy
+/usr/share/dbus-1/system-services/org.kde.fontinst.service
+/usr/share/dbus-1/system.d/org.kde.fontinst.conf
+
+# Plasma's system monitor: the helper that reads other users' processes, polkit-gated
+/usr/share/polkit-1/actions/org.kde.ksysguard.processlisthelper.policy
+/usr/share/dbus-1/system-services/org.kde.ksysguard.processlisthelper.service
+/usr/share/dbus-1/system.d/org.kde.ksysguard.processlisthelper.conf
+
+# KTextEditor (Kate's editing component): saves a file as root when the user asks to, polkit-gated
+/usr/share/polkit-1/actions/org.kde.ktexteditor6.katetextbuffer.policy
+/usr/share/dbus-1/system-services/org.kde.ktexteditor6.katetextbuffer.service
+/usr/share/dbus-1/system.d/org.kde.ktexteditor6.katetextbuffer.conf
+
+# Plasma's language settings: the helper that runs locale-gen, polkit-gated
+/usr/share/polkit-1/actions/org.kde.localegenhelper.policy
+/usr/share/dbus-1/system-services/org.kde.localegenhelper.service
+/usr/share/dbus-1/system.d/org.kde.localegenhelper.conf
+
+# SDDM and KDE's screen lock: the PAM stacks of the login screen, the autologin and the greeter, and
+# of the lock screen (password, fingerprint, smart card)
+/etc/pam.d/kde
+/etc/pam.d/kde-fingerprint
+/etc/pam.d/kde-smartcard
+/etc/pam.d/sddm
+/etc/pam.d/sddm-autologin
+/etc/pam.d/sddm-greeter
