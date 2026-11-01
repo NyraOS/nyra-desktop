@@ -24,7 +24,25 @@ printf 'version=%s\ndigest=%s\ncommit=%s\narchitecture=amd64\n' "$version" "$dig
 [ "$(git -C "$base_src" rev-parse HEAD)" = "$commit" ] || { echo "pull-base.sh: $base_src is not at $commit" >&2; exit 1; }
 
 # verified-pull.sh checks the version and the digest itself, and refuses anything else.
-id="$(sudo "$base_src/tools/install/verified-pull.sh" nyra-base "$version" "$digest" /var/lib/containers/storage)"
+# The runner's Ubuntu skopeo is built without Fulcio support and cannot check the keyless signature, so
+# the pull runs in Debian 13 (as nyra-base's own CI does), into a scratch storage; the verified image is
+# then loaded into the root storage as an OCI archive, which keeps its ID and creation time.
+debian=mirror.gcr.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+scratch="$(sudo mktemp -d /mnt/pull-base.XXXXXX)"
+trap 'sudo rm -rf "$scratch"' EXIT
+rc=0
+id="$(sudo podman run --rm --privileged -v "$(cd "$base_src" && pwd):/src:ro" -v "$scratch:/storage" "$debian" bash -c '
+  set -euo pipefail
+  apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -qq >&2
+  DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -qq --no-install-recommends \
+    skopeo podman jq git ca-certificates >&2
+  id="$(/src/tools/install/verified-pull.sh "$@")"
+  podman --root /storage/root save --format oci-archive -o /storage/base.tar "$id" >&2
+  echo "$id"
+' verify nyra-base "$version" "$digest" /storage/root)" || rc=$?
+[ "$rc" = 0 ] || { echo "pull-base.sh: the verified pull failed ($rc)" >&2; exit 1; }
+sudo podman load -q -i "$scratch/base.tar" >&2
+sudo podman image inspect -f '{{.Id}}' "$id" >/dev/null || { echo "pull-base.sh: the loaded base has another ID than $id" >&2; exit 1; }
 
 snapshot="$(sed -n 's/^Snapshot=//p' "$base_src/mkosi/mkosi.conf")"
 [[ "$snapshot" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z$ ]] ||
