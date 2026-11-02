@@ -6,11 +6,17 @@ providers of the cloud project check `workflow_ref`, which for a called workflow
 `job_workflow_ref`, which names the file the job is defined in, so a job of any workflow that image.yml
 calls (or that calls it) could otherwise get a KMS token. Refused:
 - `id-token: write` (a job's, the workflow's, `write-all`, or permissions that are not a mapping)
-  anywhere but the jobs `release-sign` and `release-sign-arm64` of image.yml, and those two jobs must
-  have exactly `contents: read` and `id-token: write`;
-- an environment on those two jobs (the KMS provider accepts only jobs without one), and an environment
-  named `sign` or `publish` (any case, spaces ignored) on any job, until the jobs that need them are added
-  and listed here; an environment name with an expression in it anywhere;
+  anywhere but the jobs `release-sign`, `release-sign-arm64` (the KMS) and `sign`, `sign-arm64` (the keyless
+  image signature) of image.yml, and those four jobs must have exactly `contents: read` and
+  `id-token: write`;
+- an environment on the release-sign jobs (the KMS provider accepts only jobs without one); anything but
+  exactly `environment: sign` on the sign jobs (the keyless provider accepts only that one);
+- anything but exactly `environment: publish` and `permissions: {contents: read}` on image.yml's `publish`
+  and `publish-arm64` (the environment that holds the R2 and KV tokens never gets an id-token);
+- an environment, or other permissions than exactly `contents: read`, on the verify jobs
+  (`verify-signature`, `verify-published` and their arm64 twins);
+- an environment named `sign` or `publish` (any case, spaces ignored) on any other job, and an environment
+  name with an expression in it anywhere;
 - a job that calls a reusable workflow (`uses:`) without exactly `permissions: {contents: read}`
   (missing permissions inherit the workflow's, so they count as wrong), with any `secrets:` key,
   and `secrets: inherit` anywhere;
@@ -27,12 +33,17 @@ import sys
 
 import yaml
 
-CAN_SIGN = {("image.yml", "release-sign"), ("image.yml", "release-sign-arm64")}
+KMS_SIGN = {("image.yml", "release-sign"), ("image.yml", "release-sign-arm64")}
+KEYLESS_SIGN = {("image.yml", "sign"), ("image.yml", "sign-arm64")}
+CAN_SIGN = KMS_SIGN | KEYLESS_SIGN
 SIGN_PERMISSIONS = {"contents": "read", "id-token": "write"}
-# Environments that hold credentials or are matched by an identity provider; no job may use one yet.
-# D2 (the image signature and publishing) adds its jobs here.
-GUARDED_ENVIRONMENTS = {"sign", "publish"}
-IN_ENVIRONMENT = {}  # environment name -> {(file, job)} allowed to use it
+PUBLISH = {("image.yml", "publish"), ("image.yml", "publish-arm64")}
+VERIFY = {("image.yml", job) for job in (
+    "verify-signature", "verify-signature-arm64", "verify-published", "verify-published-arm64")}
+# Environments that hold credentials or are matched by an identity provider, and the jobs (by file and
+# name) that must use exactly that one, written as a plain name.
+IN_ENVIRONMENT = {"sign": KEYLESS_SIGN, "publish": PUBLISH}
+GUARDED_ENVIRONMENTS = set(IN_ENVIRONMENT)
 READ_ONLY = {"contents": "read"}
 
 
@@ -70,15 +81,24 @@ def check_workflow(name, workflow):
         if key in CAN_SIGN:
             if job.get("permissions") != SIGN_PERMISSIONS:
                 found.append(f"{where}: must have exactly `permissions: {{contents: read, id-token: write}}`")
-            if "environment" in job:
-                found.append(f"{where}: must have no environment (the KMS provider accepts only jobs without one)")
         elif gives_token(job.get("permissions")):
-            found.append(f"{where}: only image.yml's release-sign and release-sign-arm64 may have id-token: write")
+            found.append(f"{where}: only image.yml's release-sign, release-sign-arm64, sign and sign-arm64 "
+                         "may have id-token: write")
+        if key in KMS_SIGN and "environment" in job:
+            found.append(f"{where}: must have no environment (the KMS provider accepts only jobs without one)")
+        if (key in PUBLISH or key in VERIFY) and job.get("permissions") != READ_ONLY:
+            found.append(f"{where}: must have exactly `permissions: {{contents: read}}` (never an id-token)")
+        if key in VERIFY and "environment" in job:
+            found.append(f"{where}: must have no environment")
+        for wanted, jobs in IN_ENVIRONMENT.items():
+            if key in jobs and job.get("environment") != wanted:
+                found.append(f"{where}: must have exactly `environment: {wanted}`")
         environment = environment_name(job)
         if environment is not None and "${{" in environment:
             found.append(f"{where}: the environment name has an expression in it")
-        elif environment in GUARDED_ENVIRONMENTS and key not in IN_ENVIRONMENT.get(environment, set()):
-            found.append(f"{where}: no job may use the environment `{environment}` yet")
+        elif environment in GUARDED_ENVIRONMENTS and key not in IN_ENVIRONMENT[environment]:
+            found.append(f"{where}: only {sorted(j for _, j in IN_ENVIRONMENT[environment])} may use the "
+                         f"environment `{environment}`")
         if "uses" in job and job.get("permissions") != READ_ONLY:
             found.append(f"{where}: a job calling a reusable workflow must have exactly "
                          "`permissions: {contents: read}`")
@@ -107,6 +127,8 @@ def self_test():
     assert check_workflow("image.yml", good) == [], check_workflow("image.yml", good)
     assert "release-sign" in good["jobs"], "the signing job is not in image.yml"
     assert "release-sign-arm64" in good["jobs"], "the arm64 signing job is not in image.yml"
+    for _, name in sorted(KEYLESS_SIGN | PUBLISH | VERIFY):
+        assert name in good["jobs"], f"{name} is not in image.yml"
     assert check(os.path.join(here, "..")) == [], check(os.path.join(here, ".."))
 
     def broken(change, name="image.yml"):
@@ -138,7 +160,35 @@ def self_test():
         "write-all in build": job("build", "permissions", "write-all"),
         "read-all in build": job("build", "permissions", "read-all"),
         "id-token in release-image": job("release-image", "permissions", both),
-        "id-token in a new job": lambda w: w["jobs"].__setitem__("sign", {"permissions": both}),
+        "id-token in a new job": lambda w: w["jobs"].__setitem__("sign-x", {"permissions": both}),
+        # The keyless sign jobs: exactly environment `sign`, exactly contents: read and id-token: write.
+        "no environment on sign": lambda w: w["jobs"]["sign"].pop("environment"),
+        "environment publish on sign": job("sign", "environment", "publish"),
+        "environment Sign on sign": job("sign", "environment", " Sign "),
+        "environment mapping on sign": job("sign", "environment", {"name": "sign", "url": "x"}),
+        "no environment on sign-arm64": lambda w: w["jobs"]["sign-arm64"].pop("environment"),
+        "environment build on sign-arm64": job("sign-arm64", "environment", "build"),
+        "no id-token in sign": job("sign", "permissions", {"contents": "read"}),
+        "more in sign": job("sign", "permissions", {**both, "packages": "write"}),
+        "write-all in sign-arm64": job("sign-arm64", "permissions", "write-all"),
+        # The publish jobs: exactly environment `publish`, exactly contents: read, never an id-token.
+        "id-token in publish": job("publish", "permissions", both),
+        "id-token in publish-arm64": job("publish-arm64", "permissions", both),
+        "write-all in publish": job("publish", "permissions", "write-all"),
+        "no permissions in publish": lambda w: w["jobs"]["publish"].pop("permissions"),
+        "more in publish-arm64": job("publish-arm64", "permissions", {"contents": "read", "actions": "write"}),
+        "no environment on publish": lambda w: w["jobs"]["publish"].pop("environment"),
+        "environment sign on publish-arm64": job("publish-arm64", "environment", "sign"),
+        # The verify jobs: no environment, exactly contents: read.
+        "environment publish on verify-published": job("verify-published", "environment", "publish"),
+        "environment sign on verify-signature": job("verify-signature", "environment", "sign"),
+        "environment on verify-signature-arm64": job("verify-signature-arm64", "environment", "build"),
+        "id-token in verify-published-arm64": job("verify-published-arm64", "permissions", both),
+        "no permissions in verify-signature": lambda w: w["jobs"]["verify-signature"].pop("permissions"),
+        # The environments of the sign and publish jobs on any other job.
+        "environment sign in release-image": job("release-image", "environment", "sign"),
+        "environment publish in boot-arm64": job("boot-arm64", "environment", "publish"),
+        "environment publish in a new job": lambda w: w["jobs"].__setitem__("publish-x", {"environment": "publish"}),
         "no id-token in release-sign": job("release-sign", "permissions", {"contents": "read"}),
         "more in release-sign": job("release-sign", "permissions", {**both, "packages": "write"}),
         "write-all in release-sign": job("release-sign", "permissions", "write-all"),
@@ -174,8 +224,13 @@ def self_test():
     # The exemption is by file and job name: the same jobs in another workflow are refused.
     signer = {"permissions": both}
     for other in ("other.yml", "session.yml"):
-        for job_name in ("release-sign", "release-sign-arm64"):
+        for job_name in ("release-sign", "release-sign-arm64", "sign", "sign-arm64"):
             assert check_workflow(other, {"jobs": {job_name: signer}}), f"accepted: {job_name} in {other}"
+            assert check_workflow(other, {"jobs": {job_name: {**signer, "environment": "sign"}}}), \
+                f"accepted: {job_name} with environment sign in {other}"
+        for job_name in ("publish", "publish-arm64"):
+            publisher = {"permissions": {"contents": "read"}, "environment": "publish"}
+            assert check_workflow(other, {"jobs": {job_name: publisher}}), f"accepted: {job_name} in {other}"
     # Another workflow may not call image.yml with more than contents: read, nor with a token.
     assert check_workflow("other.yml", {"jobs": {"image": {
         "uses": "./.github/workflows/image.yml", "permissions": both}}}), "accepted: a call with id-token"

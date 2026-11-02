@@ -175,7 +175,9 @@ own, and the version label, `IMAGE_VERSION`, `PRETTY_NAME` and `VARIANT_ID` agre
 repositories are refused, so a desktop image can not pass while it still follows the base.
 
 nyra-updated compares a sheet's version with the **booted** version only (`check_newer`), so a rollback
-deployment that is a base build with a higher number does not hold a desktop update back.
+deployment that is a base build with a higher number does not hold a desktop update back; the rest of what
+it compares, and the publish job's own version check, are in `docs/RELEASE.md`, "Rollback and the version
+floor".
 
 ## Checks
 
