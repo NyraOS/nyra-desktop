@@ -106,6 +106,7 @@ def self_test():
         good = yaml.safe_load(f)
     assert check_workflow("image.yml", good) == [], check_workflow("image.yml", good)
     assert "release-sign" in good["jobs"], "the signing job is not in image.yml"
+    assert "release-sign-arm64" in good["jobs"], "the arm64 signing job is not in image.yml"
     assert check(os.path.join(here, "..")) == [], check(os.path.join(here, ".."))
 
     def broken(change, name="image.yml"):
@@ -141,6 +142,14 @@ def self_test():
         "no id-token in release-sign": job("release-sign", "permissions", {"contents": "read"}),
         "more in release-sign": job("release-sign", "permissions", {**both, "packages": "write"}),
         "write-all in release-sign": job("release-sign", "permissions", "write-all"),
+        "id-token in release-image-arm64": job("release-image-arm64", "permissions", both),
+        "id-token in build-arm64": job("build-arm64", "permissions", both),
+        "id-token in boot-arm64": job("boot-arm64", "permissions", both),
+        "no id-token in release-sign-arm64": job("release-sign-arm64", "permissions", {"contents": "read"}),
+        "more in release-sign-arm64": job("release-sign-arm64", "permissions", {**both, "packages": "write"}),
+        "write-all in release-sign-arm64": job("release-sign-arm64", "permissions", "write-all"),
+        "environment on release-sign-arm64": job("release-sign-arm64", "environment", "build"),
+        "environment sign on release-sign-arm64": job("release-sign-arm64", "environment", "sign"),
         "environment on release-sign": job("release-sign", "environment", "build"),
         "environment sign on release-sign": job("release-sign", "environment", "sign"),
         "environment sign in build": job("build", "environment", "sign"),
