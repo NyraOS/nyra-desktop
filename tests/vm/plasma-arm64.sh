@@ -73,18 +73,29 @@ session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ 
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 
-args=()
+# quiet USER: the user's processes used at most 1 s of CPU in the last 20 s. Emulated, the greeter and the
+# session are up long before they have drawn their windows: a screenshot of "the process runs" shows the
+# wallpaper only, so the screenshots wait until the compositor and the shell have stopped working.
+quiet='quiet() { a=$(ps -u "$1" -o cputimes= | awk "{s+=\$1} END {print s+0}"); sleep 20; b=$(ps -u "$1" -o cputimes= | awk "{s+=\$1} END {print s+0}"); echo "cpu of $1 in 20 s: $((b-a)) s"; [ $((b-a)) -le 1 ]; }; quiet2() { quiet "$1" && quiet "$1"; }'
+# Two commands of the same kind, 90 s apart: the later screenshot is the one that shows the settled screen.
+args=(--command "$quiet")
 for _ in $(seq "$polls"); do args+=(--command "$poll '$greeter'"); done
-args+=(--command "$greeter && ps -o user=,rss=,args= -u sddm && sleep 120 && echo NYRA-SHOT-''login-screen && sleep 3")
+args+=(--command "$greeter && ps -o user=,rss=,args= -u sddm")
+for _ in $(seq "$polls"); do args+=(--command "$poll 'quiet2 sddm'"); done
+args+=(--command "echo NYRA-SHOT-''login-screen && sleep 3")
+args+=(--command "sleep 90; quiet2 sddm; echo NYRA-SHOT-''login-screen-2 && sleep 3")
 args+=(--command "useradd -m -s /bin/bash nyratest && mkdir -p /etc/sddm.conf.d && printf '$autologin' > /etc/sddm.conf.d/99-nyra-test.conf && systemctl restart sddm.service")
 for _ in $(seq "$polls"); do args+=(--command "$poll '$session'"); done
-args+=(--command "$session && loginctl")
-args+=(--command 'p="$(pgrep -u nyratest -x plasmashell)"; sleep 120; test "$(pgrep -u nyratest -x plasmashell)" = "$p" && pgrep -u nyratest -x kwin_wayland >/dev/null && echo "plasmashell $p and kwin_wayland run after 120 s" && ps -o rss=,args= -u nyratest | sort -rn | head -12 && sleep 180 && echo NYRA-SHOT-"plasma-session" && sleep 3')
+args+=(--command "$session && loginctl && pgrep -u nyratest -x plasmashell > /tmp/plasmashell.pid && sleep 60")
+args+=(--command 'test "$(pgrep -u nyratest -x plasmashell)" = "$(cat /tmp/plasmashell.pid)" && pgrep -u nyratest -x kwin_wayland >/dev/null && echo "plasmashell $(cat /tmp/plasmashell.pid) and kwin_wayland still run" && ps -o rss=,args= -u nyratest | sort -rn | head -12')
+for _ in $(seq "$polls"); do args+=(--command "$poll 'quiet2 nyratest'"); done
+args+=(--command "echo NYRA-SHOT-''plasma-session && sleep 3")
+args+=(--command 'sleep 90; test "$(pgrep -u nyratest -x plasmashell)" = "$(cat /tmp/plasmashell.pid)" && echo NYRA-SHOT-"plasma-session-2" && sleep 3')
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout "$boot_timeout" \
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
-  --qmp "$(shot login-screen)" --qmp "$(shot plasma-session)" \
+  --qmp "$(shot login-screen)" --qmp "$(shot login-screen-2)" --qmp "$(shot plasma-session)" --qmp "$(shot plasma-session-2)" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
   --command 'uname -m; test "$(uname -m)" = aarch64' \
@@ -97,9 +108,9 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command 'systemctl show sddm.service -p MemoryCurrent; systemctl show user-$(id -u sddm).slice -p MemoryCurrent; systemctl --no-pager list-units --type=service --state=running --no-legend --plain | cut -d" " -f1' \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
 
-# Both screenshots were taken, and are PNG files with some content in them (a blank screen compresses to
+# The four screenshots were taken, and are PNG files with some content in them (a blank screen compresses to
 # a few hundred bytes).
-for s in login-screen plasma-session; do
+for s in login-screen login-screen-2 plasma-session plasma-session-2; do
   test "$(stat -c %s "$logs/$s.png")" -gt 5000
   [ "$(head -c 4 "$logs/$s.png" | tail -c 3)" = PNG ]
 done

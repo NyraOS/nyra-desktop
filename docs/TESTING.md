@@ -187,8 +187,11 @@ configuration) and a long wait each under emulation.
 
 Emulated, the desktop takes minutes to start. `vm-boot.py` lets every guest command run for 300 s at most,
 so a wait for the greeter or the session is a series of polls of 210 s (up to 10 of each; 2 with KVM) that
-never fail, followed by the command that must succeed; the screenshots are taken 120 s after the greeter
-is up and 300 s after the session starts, as the theme and the panel are painted much later than on x86_64.
+never fail, followed by the command that must succeed. A screenshot of "the process runs" shows the
+wallpaper only (the theme and the panel are drawn much later than on x86_64), so the screenshots wait until
+the user's processes (`sddm`, then the test user) have used at most 1 s of CPU in two 20 s windows in a row,
+and a second screenshot follows 90 s after the first (`login-screen.png`, `login-screen-2.png`,
+`plasma-session.png`, `plasma-session-2.png`).
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of
