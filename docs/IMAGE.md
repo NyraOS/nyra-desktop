@@ -62,7 +62,7 @@ Every service the desktop adds starts on demand, or is listed here with its cost
 | `sddm.service` (display manager) | at boot, in `graphical.target` | the daemon about 9 MB; the login screen (KWin and the greeter, as the user `sddm`) about 650 MB with software rendering (llvmpipe; cgroup memory, page cache included), in the job summary of every run |
 | `accounts-daemon.service` | through D-Bus, when a program asks (the user list on the login screen) | only while used |
 | `cups.socket`, `cups.path` (printing) | the socket at boot, `cups.service` itself on the first connection or queued job | the socket and a path watcher only; the daemon while printing |
-| `pipewire.service`, `wireplumber.service`, `pipewire-pulse.service` (sound) | in every user session, from `default.target` | per logged-in user; their memory is in the job summary, in the process list of the session |
+| `pipewire.service`, `wireplumber.service`, `pipewire-pulse.service` (sound) | in every user session, from `default.target`, except the login screen's ("Boot time") | per logged-in user; their memory is in the job summary, in the process list of the session |
 | `udisks2.service` | through D-Bus, when a program asks (Plasma's device notifier, the automounter) | only while used |
 
 Debian's package scripts enable units through `/etc/systemd`, where the image configures nothing (`/etc`
@@ -74,6 +74,42 @@ units (they need systemd-coredump, which the base does not have, and they send r
 needs a decision first). The build fails on a link the list does not name. DrKonqi's root D-Bus
 helper (`org.kde.drkonqi`) is removed in the `Containerfile`: D-Bus would start it on demand for any
 local user, and nothing in the desktop uses it.
+
+## Boot time
+
+The goal is a login screen in under 10 seconds with nothing useless running. What was measured, in the
+VM test (QEMU with KVM, 2 vCPUs, 2 GB, Secure Boot, a first boot of a fresh disk; three boots of the
+image without and three with the change below, on a busy host):
+
+- **What the desktop starts.** The base manages the network with systemd-networkd, and the desktop adds
+  no NetworkManager, no `NetworkManager-wait-online`, no ModemManager, no Bluetooth and no Avahi: there is
+  nothing to switch off for them, and the test fails if one of them ever shows up. Of the services the
+  desktop does add, cups, accounts-daemon and udisks2 already start on demand ("Services"). The one
+  thing it started for nothing was the sound stack of the login screen: SDDM's greeter runs as the user
+  `sddm`, whose session manager started PipeWire, WirePlumber and the PulseAudio socket for a screen that
+  makes no sound.
+- **The change.** `/usr/lib/systemd/user/{pipewire,wireplumber,pipewire-pulse}.service.d` and
+  `{pipewire,pipewire-pulse}.socket.d` get `ConditionUser=!sddm`, so those units do not start for the
+  greeter's user; every other user gets sound as before. The base's updates, signatures, firewall and
+  TPM unlock are not touched. The login screen has three processes and two user sockets fewer, and the
+  active units go from 203-205 to 203 (system and the greeter's user included).
+- **The time.** To the greeter's first window: 42, 45 and 135 s after the kernel started without the
+  change (userspace 19, 23 and 63 s), 44, 59 and 101 s with it (21, 30 and 50 s). The spread is the
+  host, not the image (the runs were on a VPS shared with other jobs), and the change is not visible in
+  it: the sound stack is about 34 MB of resident memory, next to the greeter's 650 MB and KWin
+  on software rendering. **So the image does not reach 10 seconds in this VM, and this change does not
+  claim to.** The longest items of the first boot are the base's, not the desktop's: `ldconfig.service`
+  about 8 s (it rebuilds the linker cache on the first boot of a new image), `initrd-switch-root` about
+  5 s, `user@0.service`, `apparmor.service` and `nyra-boot-repair.service` 2 s each; and the greeter itself
+  needs another ~20 s after `graphical.target` with llvmpipe, which a real GPU does not. Those are for
+  the base, and for hardware, to measure; this repository cannot make them shorter.
+
+The VM test (`tests/vm/plasma.sh`) prints the same numbers in every run (`systemd-analyze time` and
+`blame`) and fails when: the greeter's first window takes more than 240 s (almost twice the slowest
+healthy run of a busy host; it catches a hang or a start that doubled, not 10 s), 250 or more units are
+active (203 now), the user `sddm` runs PipeWire or WirePlumber, or a NetworkManager, ModemManager,
+Bluetooth or Avahi unit is loaded. The 10 s itself cannot be a CI check: a runner's VM and its noise are
+bigger than the target.
 
 ## Printing
 

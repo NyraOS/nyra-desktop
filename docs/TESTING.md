@@ -129,6 +129,7 @@ tablet, 2 vCPUs and 2 GiB.
 | Secure Boot is on | `mokutil --sb-state`, and the sealed command line with the composefs digest |
 | The system is up | `systemctl is-system-running --wait` is `running`, no failed unit |
 | The login screen shows | `sddm.service` active, its greeter and KWin running as the user `sddm`; a screenshot, `login-screen.png` |
+| The boot stays lean | the login screen's first window comes within 240 s of the kernel start (the time and `systemd-analyze blame` are printed), fewer than 250 units are active, the user `sddm` runs no PipeWire or WirePlumber, and no NetworkManager, ModemManager, Bluetooth or Avahi unit is loaded (`docs/IMAGE.md`, "Boot time") |
 | A Plasma session starts | a test user (`nyratest`), logged in by SDDM's autologin, set for the test only in `/etc/sddm.conf.d`: a logind session of type `wayland`, active, with `plasmashell` and `kwin_wayland` |
 | It stays up | the same `plasmashell` process and KWin after 90 s; a screenshot, `plasma-session.png` (with llvmpipe the first panel takes about a minute) |
 | No crash | no KCrash, core dump or segfault in the journal |
