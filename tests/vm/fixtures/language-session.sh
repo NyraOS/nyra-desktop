@@ -1,0 +1,48 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# One language of the system in the VM, as tests/vm/plasma.sh runs it as root (the script is on the test's
+# SD card; test only, never shipped): sets the language and the keyboard with localectl, as the installer
+# does, restarts SDDM and checks the login screen and then the Plasma session of the test user nyratest,
+# which both must run in that language. The screenshots are taken by the test runner when this prints
+# NYRA-SHOT-<name> (QMP commands of plasma.sh).
+#   language-session.sh LANG CONSOLE_KEYMAP X11_LAYOUT NAME
+set -eu
+
+lang="$1" keymap="$2" layout="$3" name="$4"
+# Up to 120 s for a command to succeed (the same as wait_for in plasma.sh).
+w() { for _ in $(seq 60); do if eval "$1"; then return 0; fi; sleep 2; done; eval "$1"; }
+greeter='pgrep -u sddm -f "^/usr/bin/sddm-greeter-qt6 " >/dev/null && pgrep -u sddm -x kwin_wayland >/dev/null'
+session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value)" = wayland ] && [ "$(loginctl show-session "$s" -p Active --value)" = yes ] && pgrep -u nyratest -x plasmashell >/dev/null'
+# The value of LANG in the environment of the process that has the given name and user.
+lang_of() { tr '\0' '\n' < "/proc/$(pgrep -u "$1" -f "$2" | head -n 1)/environ" | sed -n 's/^LANG=//p'; }
+
+localectl set-locale "LANG=$lang"
+localectl set-keymap "$keymap"
+localectl set-x11-keymap "$layout" pc105
+localectl status
+grep -qx "LANG=$lang" /etc/locale.conf
+grep -qx "KEYMAP=$keymap" /etc/vconsole.conf
+grep -q "Option \"XkbLayout\" \"$layout\"" /etc/X11/xorg.conf.d/00-keyboard.conf
+
+# The login screen: without the autologin of the test.
+rm -f /etc/sddm.conf.d/99-nyra-test.conf
+systemctl restart sddm.service
+w "$greeter"
+sleep 30
+got="$(lang_of sddm '^/usr/bin/sddm-greeter-qt6 ')"
+echo "login screen: LANG=$got"
+[ "$got" = "$lang" ]
+echo "NYRA-SHOT-login-screen-$name"
+sleep 3
+
+# The session of the test user.
+mkdir -p /etc/sddm.conf.d
+printf '[Autologin]\nUser=nyratest\nSession=plasma.desktop\n' > /etc/sddm.conf.d/99-nyra-test.conf
+systemctl restart sddm.service
+w "$session"
+sleep 90
+got="$(lang_of nyratest '^/usr/bin/plasmashell')"
+echo "plasma session: LANG=$got"
+[ "$got" = "$lang" ]
+echo "NYRA-SHOT-plasma-session-$name"
+sleep 3
