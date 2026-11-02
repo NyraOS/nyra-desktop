@@ -18,6 +18,8 @@
 # translations and fonts of English, Romanian, Japanese and Arabic and the long list of locales, then
 # fixtures/language-session.sh sets Japanese and Arabic with localectl, as the installer does, and checks
 # the login screen and the Plasma session in each, with a screenshot of both.
+# With every locale in the image, systemd-firstboot asks for one at the first boot and waits for an answer
+# on the console; the installer answers it (nyra-first-admin), so the test does too, with a credential.
 # The devices are the VM's (an SD card on an SDHCI controller, an HDA sound card
 # without a host backend); the printer is ippeveprinter on the host, which the guest reaches at QEMU's
 # 10.0.2.2. They need cups-ipp-utils and avahi-daemon (ippeveprinter registers with it), dosfstools
@@ -106,6 +108,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-device --qemu=sdhci-pci --qemu=-device --qemu=sd-card,drive=sd0 \
   --qemu=-audiodev --qemu=none,id=snd0 --qemu=-device --qemu=intel-hda --qemu=-device --qemu=hda-duplex,audiodev=snd0 \
   --smbios "io.systemd.stub.kernel-cmdline-extra=console=ttyS0" \
+  --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
   --qmp "$(shot login-screen)" --qmp "$(shot plasma-session)" \
   --qmp "$(shot login-screen-ja)" --qmp "$(shot plasma-session-ja)" \
   --qmp "$(shot login-screen-ar)" --qmp "$(shot plasma-session-ar)" \
