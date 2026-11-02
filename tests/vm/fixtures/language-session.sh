@@ -16,7 +16,12 @@ session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ 
 # The value of LANG in the environment of the process that has the given name and user.
 lang_of() { tr '\0' '\n' < "/proc/$(pgrep -u "$1" -f "$2" | head -n 1)/environ" | sed -n 's/^LANG=//p'; }
 
-localectl set-locale "LANG=$lang"
+# A refusal of localectl: who asked and what polkit and systemd-localed logged, so the CI log shows why.
+if ! localectl set-locale "LANG=$lang"; then
+	id; loginctl list-sessions --no-pager; busctl --no-pager status org.freedesktop.locale1 | head -n 12
+	journalctl -b --no-pager -u polkit.service -u systemd-localed.service -n 40
+	exit 1
+fi
 localectl set-keymap "$keymap"
 localectl set-x11-keymap "$layout" pc105
 localectl status
