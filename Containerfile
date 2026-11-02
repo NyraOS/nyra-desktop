@@ -7,6 +7,8 @@
 #   SNAPSHOT  the Debian snapshot of that base (its mkosi.conf), which every package comes from
 #   MANIFEST  the file in base/ with that base's package list (manifest.json, or manifest-arm64.json
 #             for the arm64 image)
+#   NYRA_VERSION     the image version, year.month.run (docs/IMAGE.md, "Identity"), or dev for a local build
+#   NYRA_REPOSITORY  the update repository the image follows: nyra-desktop, or nyra-desktop-arm64
 ARG BASE=localhost/nyra-base-pinned
 ARG SEALED=sealed
 FROM ${BASE} AS base
@@ -25,6 +27,8 @@ RUN --mount=type=bind,from=base,target=/base \
     sh /in/fetch.sh "$SNAPSHOT" "/in/base/$MANIFEST"
 
 FROM base AS sealed
+ARG NYRA_VERSION=dev
+ARG NYRA_REPOSITORY=nyra-desktop
 # The base's UKI goes: the final image carries the desktop's, made for this root filesystem.
 RUN rm -r /boot/EFI && test -z "$(ls -A /boot)"
 
@@ -39,6 +43,26 @@ RUN --network=none --mount=type=bind,from=fetch,source=/out,target=/fetch \
 # Our files in /usr: SDDM's settings (the login screen on Wayland, Plasma's theme) and the presets
 # that keep the units of image/units.list off at the first boot.
 COPY image/files/usr/ /usr/
+
+# The desktop's own identity (docs/IMAGE.md, "Identity"), before the UKI is made: the composefs digest
+# in the UKI covers /usr. Its own updated.conf (from image/files, with the repository this image is
+# released to) so that a desktop never updates itself back to the base, and /usr/lib/os-release with the
+# desktop's version (the base's lines, but the version and the variant). Both are checked here, and the
+# image the CI makes is checked again from outside (ci/check-image-repository.sh).
+RUN --mount=type=tmpfs,dst=/tmp \
+    printf '%s' "$NYRA_VERSION" | grep -Eqxz '[0-9]{4}\.[0-9]{1,2}\.[0-9]+|dev' && \
+    printf '%s' "$NYRA_REPOSITORY" | grep -Eqxz 'nyra-desktop(-arm64)?' && \
+    sed -i "s/^repository = .*/repository = $NYRA_REPOSITORY/" /usr/lib/nyra/updates/updated.conf && \
+    test "$(grep -c '^repository = ' /usr/lib/nyra/updates/updated.conf)" = 1 && \
+    grep -qx "repository = $NYRA_REPOSITORY" /usr/lib/nyra/updates/updated.conf && \
+    grep -qx 'channel = stable' /usr/lib/nyra/updates/updated.conf && \
+    grep -Eqx 'version_floor = [0-9]{4}\.[0-9]{1,2}\.[0-9]+' /usr/lib/nyra/updates/updated.conf && \
+    /usr/libexec/nyra-updated check-config && \
+    grep -Ev '^(PRETTY_NAME|IMAGE_VERSION|VARIANT|VARIANT_ID)=' /usr/lib/os-release > /tmp/os-release && \
+    printf '%s\n' "PRETTY_NAME=\"Nyra OS $NYRA_VERSION\"" "IMAGE_VERSION=$NYRA_VERSION" 'VARIANT="Desktop"' VARIANT_ID=desktop >> /tmp/os-release && \
+    cat /tmp/os-release > /usr/lib/os-release && \
+    test "$(readlink /etc/os-release)" = ../usr/lib/os-release && \
+    . /etc/os-release && test "$ID $VARIANT_ID $IMAGE_VERSION" = "nyra desktop $NYRA_VERSION"
 
 # Services (docs/IMAGE.md): the unit links the package scripts made in /etc go to /usr or go away, as
 # image/units.list says. SDDM, the only service the desktop adds at boot, is then the display
