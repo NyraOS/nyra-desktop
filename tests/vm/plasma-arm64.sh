@@ -14,7 +14,10 @@
 # console add-on and VM runner. The test console add-on is signed here with a key made for this run,
 # enrolled as a MOK next to the UKI's, and deleted at the end with the other files of WORKDIR/secure-boot.
 # Never use a real key here. The test user logs in through SDDM's autologin, set for the test only in
-# /etc/sddm.conf.d: the login screen itself is checked by its greeter running and by its screenshot.
+# /etc/sddm.conf.d: the login screen itself is checked by its processes (the greeter and KWin as sddm), not by
+# its screenshot. The screenshots are kept for a person to look at; they are not evidence of a visible greeter
+# or desktop, since the best-effort wait for quiet CPU timed out in CI and they show the wallpaper or the lock
+# screen. The evidence is the process and session checks.
 set -euo pipefail
 
 base_src="$(realpath "$1")" image="$2" uki_cert="$(realpath "$3")" work="$(realpath "$4")"
@@ -73,9 +76,9 @@ session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ 
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 
-# quiet USER: the user's processes used at most 1 s of CPU in the last 20 s. Emulated, the greeter and the
-# session are up long before they have drawn their windows: a screenshot of "the process runs" shows the
-# wallpaper only, so the screenshots wait until the compositor and the shell have stopped working.
+# quiet USER: the user's processes used at most 1 s of CPU in the last 20 s. Best effort only: the wait ends
+# after its polls even when it has not succeeded (in CI every poll timed out, "not ready after 210 s"), and the
+# screenshots are taken anyway. They can show the wallpaper or the lock screen, so they are not checked.
 quiet='quiet() { a=$(ps -u "$1" -o cputimes= | awk "{s+=\$1} END {print s+0}"); sleep 20; b=$(ps -u "$1" -o cputimes= | awk "{s+=\$1} END {print s+0}"); echo "cpu of $1 in 20 s: $((b-a)) s"; [ $((b-a)) -le 1 ]; }; quiet2() { quiet "$1" && quiet "$1"; }'
 # Two commands of the same kind, 90 s apart: the later screenshot is the one that shows the settled screen.
 args=(--command "$quiet")
