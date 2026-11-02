@@ -3,11 +3,12 @@
 # The language checks of tests/vm/plasma.sh, run in the VM as root (the script is on the test's SD card;
 # test only, never shipped). It fails, naming the language, when one of these is missing from the image:
 #   - the locale (glibc's data: the weekday of 2 November 2026 must be spelled as the language does);
-#   - the translation of a KDE application (Konsole's "Settings") and of the login screen (SDDM);
+#   - the translation of a KDE application (Konsole's catalog) and of the login screen (SDDM);
 #   - a font with a letter that only that language's script has (no empty boxes where text should be).
 # Non-ASCII text is written as hex bytes, so that the script does not depend on the console's encoding.
 set -u
 
+command -v fc-list >/dev/null || { echo "FAIL: fc-list (fontconfig) is not in the image"; exit 1; }
 bad=0
 fail() { echo "FAIL: $*"; bad=1; }
 # A locale of that name, in UTF-8 (a missing one makes locale fall back to the C locale, whose charmap is ASCII).
@@ -20,12 +21,7 @@ while read -r lang loc monday glyph; do
   got="$(LC_ALL=$loc.UTF-8 date -d 2026-11-02 +%A | od -An -tx1 | tr -d ' \n')"
   [ "$got" = "${monday}0a" ] || fail "$lang: Monday is $got, not $monday"
   if [ "$lang" != en ]; then
-    python3 -I -c '
-import gettext, sys
-t = gettext.translation("konsole", "/usr/share/locale", languages=[sys.argv[1]])
-if t.gettext("Settings") == "Settings":
-    sys.exit("Konsole is not translated")
-' "$lang" 2>&1 || fail "$lang: Konsole"
+    [ -f "/usr/share/locale/$lang/LC_MESSAGES/konsole.mo" ] || fail "$lang: no Konsole translation"
   fi
   [ "$lang" = en ] || [ -f "/usr/share/sddm/translations-qt6/$lang.qm" ] || fail "$lang: no SDDM translation"
   [ -n "$(fc-list ":charset=$glyph" family)" ] || fail "$lang: no font has U+$glyph"

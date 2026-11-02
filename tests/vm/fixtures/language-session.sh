@@ -38,6 +38,7 @@ sleep 3
 # The session of the test user.
 mkdir -p /etc/sddm.conf.d
 printf '[Autologin]\nUser=nyratest\nSession=plasma.desktop\n' > /etc/sddm.conf.d/99-nyra-test.conf
+loginctl terminate-user nyratest 2>/dev/null || true
 systemctl restart sddm.service
 w "$session"
 sleep 90

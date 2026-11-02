@@ -118,8 +118,8 @@ compressed `.deb`):
 | Translations of Plasma, KDE applications and the login screen | the packages that already carry them | 267 MB for 198 languages | | nothing to add |
 | Input methods for Chinese, Japanese and Korean | `fcitx5` and its engines | about 4 MB | | on demand: not in the image, so nothing starts |
 
-So a language adds about 0.65 MB, and all of them together 341 MB to the image on disk (11 MB plus 57 MB
-plus the dictionaries to download). A shorter list would save at most that 0.65 MB per locale; one
+So a language adds about 0.65 MB, and all of them together about 376 MB installed and about 82 MB to download
+(locales 237, fonts 42 and 91, dictionaries 6 MB installed). A shorter list would save at most that 0.65 MB per locale; one
 package with all of them keeps the mechanism to a single line of the package list, and the Settings
 language list and the first-boot prompt offer every one.
 
