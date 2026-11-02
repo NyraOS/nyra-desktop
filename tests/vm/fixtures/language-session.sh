@@ -56,6 +56,17 @@ loginctl terminate-user nyratest 2>/dev/null || true
 systemctl restart sddm.service
 w "$session"
 sleep 90
+# Where the session's LANG comes from, stage by stage (printed whatever the result, for the log).
+for p in "sddm /usr/bin/sddm$" "root sddm-helper" "nyratest systemd --user" "nyratest startplasma" "nyratest kwin_wayland" "nyratest plasmashell"; do
+  u="${p%% *}" pat="${p#* }"
+  if pid="$(pgrep -u "$u" -f "$pat" | head -n 1)" && [ -n "$pid" ]; then
+    echo "  $pat (pid $pid): LANG=$(tr '\0' '\n' < "/proc/$pid/environ" | sed -n 's/^LANG=//p')"
+  else
+    echo "  $pat: not running"
+  fi
+done
+echo "  user manager: $(runuser -u nyratest -- env XDG_RUNTIME_DIR="/run/user/$(id -u nyratest)" systemctl --user show-environment 2>&1 | grep -E '^LANG' || echo 'no LANG')"
+ls -l /etc/default/locale; cat ~nyratest/.config/plasma-localerc 2>/dev/null || echo "no plasma-localerc"
 got="$(lang_of nyratest '^/usr/bin/plasmashell')"
 echo "plasma session: LANG=$got"
 [ "$got" = "$lang" ]
