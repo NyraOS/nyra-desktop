@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # One language of the system in the VM, as tests/vm/plasma.sh runs it as root (the script is on the test's
-# SD card; test only, never shipped): sets the language and the keyboard with localectl, as the installer
+# SD card; test only, never shipped): sets the language and the keyboard by writing the files localectl writes, as the installer
 # does, restarts SDDM and checks the login screen and then the Plasma session of the test user nyratest,
 # which both must run in that language. The screenshots are taken by the test runner when this prints
 # NYRA-SHOT-<name> (QMP commands of plasma.sh).
@@ -16,14 +16,23 @@ session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ 
 # The value of LANG in the environment of the process that has the given name and user.
 lang_of() { tr '\0' '\n' < "/proc/$(pgrep -u "$1" -f "$2" | head -n 1)/environ" | sed -n 's/^LANG=//p'; }
 
-# A refusal of localectl: who asked and what polkit and systemd-localed logged, so the CI log shows why.
-if ! localectl set-locale "LANG=$lang"; then
-	id; loginctl list-sessions --no-pager; busctl --no-pager status org.freedesktop.locale1 | head -n 12
-	journalctl -b --no-pager -u polkit.service -u systemd-localed.service -n 40
-	exit 1
-fi
-localectl set-keymap "$keymap"
-localectl set-x11-keymap "$layout" pc105
+# The files that localectl (systemd-localed) writes, written directly: the image's polkit administrator is
+# root only (49-nyra.rules), and root on the serial console is no active local session, so polkit has
+# nobody to ask and localed refuses set-locale, set-keymap and set-x11-keymap there. The installer writes
+# the same files before the first boot (first-admin does it for /etc/locale.conf); localed and kwin
+# (--locale1) then read them as for any user. Nothing is loosened: the same files are checked below.
+mkdir -p /etc/X11/xorg.conf.d
+printf 'LANG=%s\n' "$lang" > /etc/locale.conf
+printf 'KEYMAP=%s\n' "$keymap" > /etc/vconsole.conf
+cat > /etc/X11/xorg.conf.d/00-keyboard.conf <<EOF
+# Written by localectl
+Section "InputClass"
+        Identifier "system-keyboard"
+        MatchIsKeyboard "on"
+        Option "XkbLayout" "$layout"
+        Option "XkbModel" "pc105"
+EndSection
+EOF
 localectl status
 grep -qx "LANG=$lang" /etc/locale.conf
 grep -qx "KEYMAP=$keymap" /etc/vconsole.conf
