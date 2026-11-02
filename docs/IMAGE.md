@@ -6,8 +6,8 @@ desktop's own sealed UKI. Nothing is compiled, and nothing is installed on the u
 image is the product. CI builds it on every pull request and push to `main`
 (`.github/workflows/image.yml`) and boots it (`docs/TESTING.md`, "Level 2").
 
-This first step signs the UKI only with keys made for the CI run. Release signing, publishing and
-everything else of a desktop release are later steps.
+The UKI is signed with keys made for the CI run, except in release mode, where the Nyra keys in the Cloud
+KMS sign it (`docs/RELEASE.md`). Publishing the image is a later step.
 
 ## The pinned base
 
@@ -62,7 +62,7 @@ Every service the desktop adds starts on demand, or is listed here with its cost
 | `sddm.service` (display manager) | at boot, in `graphical.target` | the daemon about 9 MB; the login screen (KWin and the greeter, as the user `sddm`) about 650 MB with software rendering (llvmpipe; cgroup memory, page cache included), in the job summary of every run |
 | `accounts-daemon.service` | through D-Bus, when a program asks (the user list on the login screen) | only while used |
 | `cups.socket`, `cups.path` (printing) | the socket at boot, `cups.service` itself on the first connection or queued job | the socket and a path watcher only; the daemon while printing |
-| `pipewire.service`, `wireplumber.service`, `pipewire-pulse.service` (sound) | in every user session, from `default.target` | per logged-in user; their memory is in the job summary, in the process list of the session |
+| `pipewire.service`, `wireplumber.service`, `pipewire-pulse.service` (sound) | in every user session, from `default.target`, except the login screen's ("Boot time") | per logged-in user; their memory is in the job summary, in the process list of the session |
 | `udisks2.service` | through D-Bus, when a program asks (Plasma's device notifier, the automounter) | only while used |
 
 Debian's package scripts enable units through `/etc/systemd`, where the image configures nothing (`/etc`
@@ -74,6 +74,42 @@ units (they need systemd-coredump, which the base does not have, and they send r
 needs a decision first). The build fails on a link the list does not name. DrKonqi's root D-Bus
 helper (`org.kde.drkonqi`) is removed in the `Containerfile`: D-Bus would start it on demand for any
 local user, and nothing in the desktop uses it.
+
+## Boot time
+
+The goal is a login screen in under 10 seconds with nothing useless running. What was measured, in the
+VM test (QEMU with KVM, 2 vCPUs, 2 GB, Secure Boot, a first boot of a fresh disk; three boots of the
+image without and three with the change below, on a busy host):
+
+- **What the desktop starts.** The base manages the network with systemd-networkd, and the desktop adds
+  no NetworkManager, no `NetworkManager-wait-online`, no ModemManager, no Bluetooth and no Avahi: there is
+  nothing to switch off for them, and the test fails if one of them ever shows up. Of the services the
+  desktop does add, cups, accounts-daemon and udisks2 already start on demand ("Services"). The one
+  thing it started for nothing was the sound stack of the login screen: SDDM's greeter runs as the user
+  `sddm`, whose session manager started PipeWire, WirePlumber and the PulseAudio socket for a screen that
+  makes no sound.
+- **The change.** `/usr/lib/systemd/user/{pipewire,wireplumber,pipewire-pulse}.service.d` and
+  `{pipewire,pipewire-pulse}.socket.d` get `ConditionUser=!sddm`, so those units do not start for the
+  greeter's user; every other user gets sound as before. The base's updates, signatures, firewall and
+  TPM unlock are not touched. The login screen has three processes and two user sockets fewer, and the
+  active units go from 203-205 to 203 (system and the greeter's user included).
+- **The time.** To the greeter's first window: 42, 45 and 135 s after the kernel started without the
+  change (userspace 19, 23 and 63 s), 44, 59 and 101 s with it (21, 30 and 50 s). The spread is the
+  host, not the image (the runs were on a VPS shared with other jobs), and the change is not visible in
+  it: the sound stack is about 34 MB of resident memory, next to the greeter's 650 MB and KWin
+  on software rendering. **So the image does not reach 10 seconds in this VM, and this change does not
+  claim to.** The longest items of the first boot are the base's, not the desktop's: `ldconfig.service`
+  about 8 s (it rebuilds the linker cache on the first boot of a new image), `initrd-switch-root` about
+  5 s, `user@0.service`, `apparmor.service` and `nyra-boot-repair.service` 2 s each; and the greeter itself
+  needs another ~20 s after `graphical.target` with llvmpipe, which a real GPU does not. Those are for
+  the base, and for hardware, to measure; this repository cannot make them shorter.
+
+The VM test (`tests/vm/plasma.sh`) prints the same numbers in every run (`systemd-analyze time` and
+`blame`) and fails when: the greeter's first window takes more than 240 s (almost twice the slowest
+healthy run of a busy host; it catches a hang or a start that doubled, not 10 s), 250 or more units are
+active (203 now), the user `sddm` runs PipeWire or WirePlumber, or a NetworkManager, ModemManager,
+Bluetooth or Avahi unit is loaded. The 10 s itself cannot be a CI check: a runner's VM and its noise are
+bigger than the target.
 
 ## Printing
 
@@ -143,10 +179,41 @@ nyra-base's scripts from the pinned commit:
   desktop's composefs digest, with the base's recovery and reset profiles and SBAT lines;
 - the PCR 11 policy and the Secure Boot signature come from two keys made for the run and deleted
   right after signing (`pcr-policy.py`, `sign-uki.sh`, after `uki-check.py`); only the certificate
-  and the policy's public key stay, for the VM test.
+  and the policy's public key stay, for the VM test. In release mode (`docs/RELEASE.md`) the UKI carries
+  the pinned base's committed policy key, is left unsigned, and the Nyra keys sign it in the KMS.
 
 The base's UKI is removed from the layer, so the image has exactly one, and the last stage runs `bootc
 container lint --fatal-warnings`.
+
+## Identity
+
+The desktop is a product of its own, not the base: it must never update itself back to the base, and its
+versions are its own. The Containerfile writes this into the root filesystem **before the UKI is made**
+(the composefs digest in the UKI covers `/usr`):
+
+- **`/usr/lib/nyra/updates/updated.conf`** replaces the base's (`image/files/usr/lib/nyra/updates/updated.conf`):
+  `repository = nyra-desktop` (`nyra-desktop-arm64` on arm64, the build argument `NYRA_REPOSITORY`),
+  `channel = stable` and the desktop's own `version_floor`. `nyra-updated check-config` parses it in the build.
+- **The version** is `YEAR.MONTH.RUN`, by the base's rule: the year and month of the pinned base's
+  `Snapshot=` and the run number of this repository's `image.yml`, which only grows. It is **not** the
+  base's version: the base counts its own builds, and a sheet of the desktop's channel is compared with the
+  desktop's numbers. It is in the manifest annotation and label `org.opencontainers.image.version` (bootc
+  reads the annotation) and in `/usr/lib/os-release`: `IMAGE_VERSION`, `PRETTY_NAME="Nyra OS <version>"`,
+  `VARIANT="Desktop"` and `VARIANT_ID=desktop`. A local build without `VERSION` is `dev`.
+- **`version_floor`**: no target older than this, not even a signed retraction. It counts in desktop run
+  numbers, so the base's floor says nothing about it. Start at the first month of the desktop (`2026.10.1`).
+  When the base raises its floor because a channel-sheet key was rotated out, raise the desktop's in the
+  same change: both are read from the image on the machine, and an old floor would still accept a sheet
+  signed by the retired key.
+
+`ci/check-image-repository.sh IMAGE REPOSITORY VERSION` checks all of it on the built image (a job step in
+`build`, and again on the release image): the OS and architecture match the repository, exactly one
+`repository` line names it, the channel is `stable`, the floor is a version that is not above the image's
+own, and the version label, `IMAGE_VERSION`, `PRETTY_NAME` and `VARIANT_ID` agree. The base's own
+repositories are refused, so a desktop image can not pass while it still follows the base.
+
+nyra-updated compares a sheet's version with the **booted** version only (`check_newer`), so a rollback
+deployment that is a base build with a higher number does not hold a desktop update back.
 
 ## Checks
 
@@ -178,3 +245,33 @@ desktop's, and the crates of the base's Rust programs. The exceptions are the de
 (`sbom/mitigations.toml`, empty for now): the base's rest on the base's configuration, which a desktop
 changes. The scan is in report mode, as in the base's builds; it is the last step of the build job, and
 the SBOM, the report and the package list are the `nyra-desktop-sbom` artifact.
+
+## arm64
+
+The desktop is built for aarch64 too, so that it can run in a virtual machine on Apple Silicon (UTM).
+x86_64 stays the reference; nothing of its build or tests waits for the arm64 jobs (`build-arm64` and
+`boot-arm64` of `image.yml`, which are part of that file, with the same permissions: `contents: read`
+only).
+
+- **The base** is `nyra-base-arm64`, pinned by `base/pin-arm64` (the same four lines as `base/pin`, with
+  `architecture=arm64`; the version and the commit are the x86_64 release's, as the two are one run of
+  nyra-base) and `base/manifest-arm64.json`, the arm64 package list of that run (`nyra-base-arm64-packages`
+  artifact). `ci/pull-base.sh BASE_SRC arm64` makes the same verified pull, from the repository
+  `nyra-base-arm64`, and its `verified-pull.sh` refuses an image of another architecture. Moving to a
+  newer base is a change of both arm64 files, as above, together with the x86_64 ones.
+- **The packages** are the same list (`image/packages/desktop.list`), resolved against the arm64
+  snapshot and the arm64 base's packages (`ci/build-image.sh` passes `MANIFEST=manifest-arm64.json` to
+  the Containerfile when it runs on aarch64). Every package of the list exists for arm64 at the base's
+  snapshot, and the resolution adds no more than the x86_64 one (653 packages at the time of writing,
+  none of the base's changed). The only architecture-specific path in the Containerfile, DrKonqi's
+  helper, is matched as `/usr/lib/*-linux-gnu/...`.
+- **The build** runs natively on `ubuntu-24.04-arm`, with the same scripts and the same guards:
+  the reason for every package, the verified pull of the base, `ci/check-privileged.sh`,
+  `ci/check-added.sh` (`image/added.txt` is the same file for both architectures: the lists must match
+  there too), the sealed UKI (PE machine AArch64, `--hwids ''`, signed with a key made for the run) and
+  `ci/check-digest.sh`. The job checks that the base and the image are `linux/arm64`.
+- **Not done on arm64:** the SBOM and the vulnerability scan (nyra-base's scanner reads the amd64
+  package index only; the arm64 package list is the `nyra-desktop-arm64-packages` artifact), and the
+  SD card, printing, sound and video tests (`docs/TESTING.md`, "Level 2 on aarch64").
+- **Time:** the arm64 runners have no KVM, so the boot is emulated and slower; the job limits are 90
+  minutes for the build and 120 for the boot (`docs/TESTING.md`).
