@@ -105,7 +105,7 @@ image without and three with the change below, on a busy host):
   the base, and for hardware, to measure; this repository cannot make them shorter.
 
 The VM test (`tests/vm/plasma.sh`) prints the same numbers in every run (`systemd-analyze time` and
-`blame`) and fails when: the greeter's first window takes more than 180 s (three times the slowest
+`blame`) and fails when: the greeter's first window takes more than 240 s (almost twice the slowest
 healthy run of a busy host; it catches a hang or a start that doubled, not 10 s), 250 or more units are
 active (203 now), the user `sddm` runs PipeWire or WirePlumber, or a NetworkManager, ModemManager,
 Bluetooth or Avahi unit is loaded. The 10 s itself cannot be a CI check: a runner's VM and its noise are
