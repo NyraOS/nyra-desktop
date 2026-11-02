@@ -169,3 +169,31 @@ Running it on a machine with KVM, root and nyra-base checked out at the pinned c
 # also needs cups-ipp-utils, avahi-daemon (ippeveprinter registers with it) and dosfstools
 tests/vm/plasma.sh ../nyra-base localhost/nyra-desktop:ci /var/tmp/build/uki.crt /var/tmp/vm /var/tmp/vm/logs /var/tmp/vm/summary.md
 ```
+
+### Level 2 on aarch64
+
+`tests/vm/plasma-arm64.sh`, the `boot-arm64` job of `.github/workflows/image.yml`, does the same on the
+arm64 image (`docs/IMAGE.md`, "arm64"): nyra-base's VM tools install it to a disk and boot it in QEMU's
+`virt` machine with edk2 (AAVMF), with Secure Boot: Debian's arm64 shim, then systemd-boot, then the
+desktop's UKI, signed with the run's key and enrolled as a MOK. GitHub's arm64 runners have no KVM (October
+2026), so the CPU is emulated (TCG, `vm-boot.py` picks it by itself), and the VM has 2 vCPUs and 2 GiB, as
+on x86_64.
+
+It checks Secure Boot, the sealed command line, a running system with no failed unit, the login screen
+(`login-screen.png`), a Plasma session of the test user that stays up (`plasma-session.png`) and no
+crash, as in the table above. It does not run the SD card, printing, sound and video tests: they would
+add little to what the x86_64 test proves of the packages (the same package versions, the same
+configuration) and a long wait each under emulation.
+
+Emulated, the desktop takes minutes to start. `vm-boot.py` lets every guest command run for 300 s at most,
+so a wait for the greeter or the session is a series of polls of 210 s (up to 10 of each; 2 with KVM) that
+never fail, followed by the command that must succeed; the screenshots are taken 120 s after the greeter
+is up and 300 s after the session starts, as the theme and the panel are painted much later than on x86_64.
+The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
+`desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
+steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of
+`base/pin-arm64`:
+
+```bash
+tests/vm/plasma-arm64.sh ../nyra-base localhost/nyra-desktop:ci /var/tmp/build/uki.crt /var/tmp/vm /var/tmp/vm/logs /var/tmp/vm/summary.md
+```

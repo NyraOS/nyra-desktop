@@ -5,6 +5,8 @@
 # committed image> and the signed UKI as the build context "uki", as nyra-base does.
 #   BASE      the pinned nyra-base image, pulled and verified by ci/build-image.sh (an image ID)
 #   SNAPSHOT  the Debian snapshot of that base (its mkosi.conf), which every package comes from
+#   MANIFEST  the file in base/ with that base's package list (manifest.json, or manifest-arm64.json
+#             for the arm64 image)
 ARG BASE=localhost/nyra-base-pinned
 ARG SEALED=sealed
 FROM ${BASE} AS base
@@ -14,12 +16,13 @@ FROM ${BASE} AS base
 # (tests/session/desktop.Containerfile), from Amazon ECR Public's copy of Docker Hub's official images.
 FROM public.ecr.aws/docker/library/debian:testing-20261005@sha256:f35963177a0584848d5222b3d2b4f4ebcc6434d39db0a709c3088237ef619cbf AS fetch
 ARG SNAPSHOT
+ARG MANIFEST=manifest.json
 RUN --mount=type=bind,from=base,target=/base \
     --mount=type=bind,source=tests/session/apt-snapshot.sh,target=/in/apt-snapshot.sh \
-    --mount=type=bind,source=base/manifest.json,target=/in/manifest.json \
+    --mount=type=bind,source=base,target=/in/base \
     --mount=type=bind,source=image/packages/desktop.list,target=/in/desktop.list \
     --mount=type=bind,source=image/fetch.sh,target=/in/fetch.sh \
-    sh /in/fetch.sh "$SNAPSHOT"
+    sh /in/fetch.sh "$SNAPSHOT" "/in/base/$MANIFEST"
 
 FROM base AS sealed
 # The base's UKI goes: the final image carries the desktop's, made for this root filesystem.
@@ -58,9 +61,11 @@ RUN --mount=type=bind,from=base,target=/base --mount=type=tmpfs,dst=/tmp \
 # DrKonqi's root helper (docs/IMAGE.md, "Services"): its D-Bus service file starts a program as root on
 # demand, for any local user who asks the system bus, to write a crash report's data, and crash reports
 # are off. Its service file, bus policy, polkit action and program go; rm without -f, so the build also
-# fails when a package update moves one of them. (ci/check-added.sh fails if the service comes back.)
+# fails when a package update moves one of them. The helper's directory is named after the architecture
+# (x86_64-linux-gnu, aarch64-linux-gnu): a glob that matches nothing stays literal, so rm fails then too.
+# (ci/check-added.sh fails if the service comes back.)
 RUN rm /usr/share/dbus-1/system-services/org.kde.drkonqi.service /usr/share/dbus-1/system.d/org.kde.drkonqi.conf \
-      /usr/share/polkit-1/actions/org.kde.drkonqi.policy /usr/lib/x86_64-linux-gnu/libexec/kf6/drkonqi-polkit-helper
+      /usr/share/polkit-1/actions/org.kde.drkonqi.policy /usr/lib/*-linux-gnu/libexec/kf6/drkonqi-polkit-helper
 
 # FireWire audio interfaces (libffado2, which the JACK client library pulls in): the rule only puts them
 # in the audio group, and nothing in the desktop uses FireWire audio. rm without -f, as above.

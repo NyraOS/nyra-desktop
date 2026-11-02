@@ -17,6 +17,8 @@
 # WORK also gets desktop.manifest.json, the packages the desktop adds (for ci/sbom.sh).
 # No release key, no KMS, nothing published: a release of the desktop is a later step.
 #   ci/build-image.sh BASE_SRC BASE_IMAGE TAG WORK [podman build options for the final image...]
+# On an arm64 machine the image is the arm64 one: the base's package list is base/manifest-arm64.json
+# (the same Containerfile, the same steps, natively; docs/IMAGE.md, "arm64").
 # BASE_IMAGE is the verified pull of the pinned base (an image ID, ci/pull-base.sh). SOURCE_DATE_EPOCH
 # is the base's snapshot date (ci/pull-base.sh checks that the base was built at it).
 set -euo pipefail
@@ -25,8 +27,11 @@ base_src="$1" base="$2" tag="$3" work="$4"
 shift 4
 snapshot="$(sed -n 's/^Snapshot=//p' "$base_src/mkosi/mkosi.conf")"
 [[ "$snapshot" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || { echo "build-image.sh: no snapshot in $base_src/mkosi/mkosi.conf" >&2; exit 1; }
+manifest=manifest.json
+if [ "$(uname -m)" = aarch64 ]; then manifest="manifest-arm64.json"; fi
 build() {
-  sudo podman build --timestamp "$SOURCE_DATE_EPOCH" --build-arg BASE="$base" --build-arg SNAPSHOT="$snapshot" "$@" -f Containerfile .
+  sudo podman build --timestamp "$SOURCE_DATE_EPOCH" --build-arg BASE="$base" --build-arg SNAPSHOT="$snapshot" \
+    --build-arg MANIFEST="$manifest" "$@" -f Containerfile .
 }
 
 # 1 and 2. The final stage is not built here; its "uki" context is given anyway (empty), so that
