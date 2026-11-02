@@ -6,8 +6,8 @@ desktop's own sealed UKI. Nothing is compiled, and nothing is installed on the u
 image is the product. CI builds it on every pull request and push to `main`
 (`.github/workflows/image.yml`) and boots it (`docs/TESTING.md`, "Level 2").
 
-This first step signs the UKI only with keys made for the CI run. Release signing, publishing and
-everything else of a desktop release are later steps.
+The UKI is signed with keys made for the CI run, except in release mode, where the Nyra keys in the Cloud
+KMS sign it (`docs/RELEASE.md`). Publishing the image is a later step.
 
 ## The pinned base
 
@@ -105,10 +105,41 @@ nyra-base's scripts from the pinned commit:
   desktop's composefs digest, with the base's recovery and reset profiles and SBAT lines;
 - the PCR 11 policy and the Secure Boot signature come from two keys made for the run and deleted
   right after signing (`pcr-policy.py`, `sign-uki.sh`, after `uki-check.py`); only the certificate
-  and the policy's public key stay, for the VM test.
+  and the policy's public key stay, for the VM test. In release mode (`docs/RELEASE.md`) the UKI carries
+  the pinned base's committed policy key, is left unsigned, and the Nyra keys sign it in the KMS.
 
 The base's UKI is removed from the layer, so the image has exactly one, and the last stage runs `bootc
 container lint --fatal-warnings`.
+
+## Identity
+
+The desktop is a product of its own, not the base: it must never update itself back to the base, and its
+versions are its own. The Containerfile writes this into the root filesystem **before the UKI is made**
+(the composefs digest in the UKI covers `/usr`):
+
+- **`/usr/lib/nyra/updates/updated.conf`** replaces the base's (`image/files/usr/lib/nyra/updates/updated.conf`):
+  `repository = nyra-desktop` (`nyra-desktop-arm64` on arm64, the build argument `NYRA_REPOSITORY`),
+  `channel = stable` and the desktop's own `version_floor`. `nyra-updated check-config` parses it in the build.
+- **The version** is `YEAR.MONTH.RUN`, by the base's rule: the year and month of the pinned base's
+  `Snapshot=` and the run number of this repository's `image.yml`, which only grows. It is **not** the
+  base's version: the base counts its own builds, and a sheet of the desktop's channel is compared with the
+  desktop's numbers. It is in the manifest annotation and label `org.opencontainers.image.version` (bootc
+  reads the annotation) and in `/usr/lib/os-release`: `IMAGE_VERSION`, `PRETTY_NAME="Nyra OS <version>"`,
+  `VARIANT="Desktop"` and `VARIANT_ID=desktop`. A local build without `VERSION` is `dev`.
+- **`version_floor`**: no target older than this, not even a signed retraction. It counts in desktop run
+  numbers, so the base's floor says nothing about it. Start at the first month of the desktop (`2026.10.1`).
+  When the base raises its floor because a channel-sheet key was rotated out, raise the desktop's in the
+  same change: both are read from the image on the machine, and an old floor would still accept a sheet
+  signed by the retired key.
+
+`ci/check-image-repository.sh IMAGE REPOSITORY VERSION` checks all of it on the built image (a job step in
+`build`, and again on the release image): the OS and architecture match the repository, exactly one
+`repository` line names it, the channel is `stable`, the floor is a version that is not above the image's
+own, and the version label, `IMAGE_VERSION`, `PRETTY_NAME` and `VARIANT_ID` agree. The base's own
+repositories are refused, so a desktop image can not pass while it still follows the base.
+
+nyra-updated compares a sheet's version with the **booted** version only (`check_newer`), so a rollback
+deployment that is a base build with a higher number does not hold a desktop update back.
 
 ## Checks
 
