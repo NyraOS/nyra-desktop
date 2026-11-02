@@ -207,3 +207,33 @@ desktop's, and the crates of the base's Rust programs. The exceptions are the de
 (`sbom/mitigations.toml`, empty for now): the base's rest on the base's configuration, which a desktop
 changes. The scan is in report mode, as in the base's builds; it is the last step of the build job, and
 the SBOM, the report and the package list are the `nyra-desktop-sbom` artifact.
+
+## arm64
+
+The desktop is built for aarch64 too, so that it can run in a virtual machine on Apple Silicon (UTM).
+x86_64 stays the reference; nothing of its build or tests waits for the arm64 jobs (`build-arm64` and
+`boot-arm64` of `image.yml`, which are part of that file, with the same permissions: `contents: read`
+only).
+
+- **The base** is `nyra-base-arm64`, pinned by `base/pin-arm64` (the same four lines as `base/pin`, with
+  `architecture=arm64`; the version and the commit are the x86_64 release's, as the two are one run of
+  nyra-base) and `base/manifest-arm64.json`, the arm64 package list of that run (`nyra-base-arm64-packages`
+  artifact). `ci/pull-base.sh BASE_SRC arm64` makes the same verified pull, from the repository
+  `nyra-base-arm64`, and its `verified-pull.sh` refuses an image of another architecture. Moving to a
+  newer base is a change of both arm64 files, as above, together with the x86_64 ones.
+- **The packages** are the same list (`image/packages/desktop.list`), resolved against the arm64
+  snapshot and the arm64 base's packages (`ci/build-image.sh` passes `MANIFEST=manifest-arm64.json` to
+  the Containerfile when it runs on aarch64). Every package of the list exists for arm64 at the base's
+  snapshot, and the resolution adds no more than the x86_64 one (653 packages at the time of writing,
+  none of the base's changed). The only architecture-specific path in the Containerfile, DrKonqi's
+  helper, is matched as `/usr/lib/*-linux-gnu/...`.
+- **The build** runs natively on `ubuntu-24.04-arm`, with the same scripts and the same guards:
+  the reason for every package, the verified pull of the base, `ci/check-privileged.sh`,
+  `ci/check-added.sh` (`image/added.txt` is the same file for both architectures: the lists must match
+  there too), the sealed UKI (PE machine AArch64, `--hwids ''`, signed with a key made for the run) and
+  `ci/check-digest.sh`. The job checks that the base and the image are `linux/arm64`.
+- **Not done on arm64:** the SBOM and the vulnerability scan (nyra-base's scanner reads the amd64
+  package index only; the arm64 package list is the `nyra-desktop-arm64-packages` artifact), and the
+  SD card, printing, sound and video tests (`docs/TESTING.md`, "Level 2 on aarch64").
+- **Time:** the arm64 runners have no KVM, so the boot is emulated and slower; the job limits are 90
+  minutes for the build and 120 for the boot (`docs/TESTING.md`).

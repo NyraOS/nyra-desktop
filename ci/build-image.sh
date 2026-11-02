@@ -25,6 +25,8 @@
 # the base; dev without it) and REPOSITORY (nyra-desktop, the default, or nyra-desktop-arm64). Both go into
 # the sealed image, so before the UKI is made.
 #   [NYRA_RELEASE=1] [VERSION=...] [REPOSITORY=...] ci/build-image.sh BASE_SRC BASE_IMAGE TAG WORK [podman build options for the final image...]
+# On an arm64 machine the image is the arm64 one: the base's package list is base/manifest-arm64.json
+# (the same Containerfile, the same steps, natively; docs/IMAGE.md, "arm64").
 # BASE_IMAGE is the verified pull of the pinned base (an image ID, ci/pull-base.sh). SOURCE_DATE_EPOCH
 # is the base's snapshot date (ci/pull-base.sh checks that the base was built at it).
 set -euo pipefail
@@ -34,9 +36,12 @@ shift 4
 case "${NYRA_RELEASE:-}" in ""|1) ;; *) echo "build-image.sh: NYRA_RELEASE must be unset or 1, not '$NYRA_RELEASE'" >&2; exit 1 ;; esac
 snapshot="$(sed -n 's/^Snapshot=//p' "$base_src/mkosi/mkosi.conf")"
 [[ "$snapshot" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || { echo "build-image.sh: no snapshot in $base_src/mkosi/mkosi.conf" >&2; exit 1; }
+manifest=manifest.json
+if [ "$(uname -m)" = aarch64 ]; then manifest="manifest-arm64.json"; fi
 build() {
   sudo podman build --timestamp "$SOURCE_DATE_EPOCH" --build-arg BASE="$base" --build-arg SNAPSHOT="$snapshot" \
-    --build-arg NYRA_VERSION="${VERSION:-dev}" --build-arg NYRA_REPOSITORY="${REPOSITORY:-nyra-desktop}" "$@" -f Containerfile .
+    --build-arg NYRA_VERSION="${VERSION:-dev}" --build-arg NYRA_REPOSITORY="${REPOSITORY:-nyra-desktop}" \
+    --build-arg MANIFEST="$manifest" "$@" -f Containerfile .
 }
 
 # 1 and 2. The final stage is not built here; its "uki" context is given anyway (empty), so that

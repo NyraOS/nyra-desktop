@@ -3,8 +3,9 @@
 # The "fetch" stage of the Containerfile (docs/IMAGE.md): resolves the desktop's packages against what
 # nyra-base already has and downloads them, so that the stage FROM the base only runs dpkg, which the
 # base keeps (it has no apt and no dpkg database).
-#   fetch.sh SNAPSHOT   with the inputs in /in, the base image's root at /base, the results in /out
-# /in: apt-snapshot.sh, manifest.json (the base's package list, mkosi's JSON) and desktop.list.
+#   fetch.sh SNAPSHOT [MANIFEST]   with the inputs in /in, the base image's root at /base, the results in /out
+# /in: apt-snapshot.sh, desktop.list and MANIFEST (the base's package list, mkosi's JSON; default
+# /in/manifest.json).
 # /out: status (a dpkg status file that lists the base's packages as installed), debs/ (the packages
 # to install, checked by apt against the snapshot's signed index), plan (apt's order: "unpack DEB..."
 # and "configure PACKAGE..." lines) and manifest.json (the packages the desktop adds, mkosi's format).
@@ -14,12 +15,13 @@
 set -eu
 
 snapshot="$1"
+manifest="${2:-/in/manifest.json}"
 /in/apt-snapshot.sh "$snapshot"
 apt-get install -y -q jq >/dev/null
 mkdir -p /out/debs
 
 # The base's packages as dpkg would list them: their records from the snapshot's index, installed.
-jq -r '.packages[] | "\(.name)=\(.version)"' /in/manifest.json > /tmp/base.list
+jq -r '.packages[] | "\(.name)=\(.version)"' "$manifest" > /tmp/base.list
 n="$(wc -l < /tmp/base.list)"
 xargs apt-cache show < /tmp/base.list |
   grep -Ev '^(Filename|Size|MD5sum|SHA256|Description-md5): ' |
@@ -62,7 +64,7 @@ awk 'NR == FNR { deb[$1] = $2; next }
 
 # The desktop's packages for the SBOM, as mkosi lists the base's.
 sed -n 's/^Inst \([^ ]*\) (\([^ ]*\) [^[]*\[\([^]]*\)\]).*$/\1 \2 \3/p' /tmp/sim |
-  jq -R -s --slurpfile m /in/manifest.json '{manifest_version: 1, config: $m[0].config,
+  jq -R -s --slurpfile m "$manifest" '{manifest_version: 1, config: $m[0].config,
     packages: [split("\n")[] | select(. != "") | split(" ") | {type: "deb", name: .[0], version: .[1], architecture: .[2]}]}' \
   > /out/manifest.json
 [ "$(jq '.packages | length' /out/manifest.json)" = "$(grep -c '^Inst ' /tmp/sim)" ]
