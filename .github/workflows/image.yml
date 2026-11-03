@@ -10,7 +10,8 @@
 # The jobs ending in -arm64 do the same for aarch64 (docs/IMAGE.md, "arm64"): natively on GitHub's arm64
 # runners, from the pinned arm64 base (base/pin-arm64), and booted emulated (they have no KVM), to the login
 # screen and a Plasma session. They are part of this file, with the same permissions as the x86_64 jobs;
-# nothing of the x86_64 jobs needs them.
+# nothing of the x86_64 jobs needs them. In release mode the arm64 build has its own release-sign-arm64
+# and release-image-arm64 (docs/RELEASE.md), and boot-arm64 boots the release image instead of the build's.
 name: image
 on:
   push:
@@ -554,10 +555,30 @@ jobs:
       base_commit: ${{ steps.pin.outputs.commit }}
       uki_cert: ${{ steps.image.outputs.uki_cert }}
       image_sha256: ${{ steps.export.outputs.image_sha256 }}
+      # Release mode (the mode step): release-sign-arm64, release-image-arm64 and boot-arm64 choose by it.
+      release: ${{ steps.mode.outputs.release }}
+      version: ${{ steps.image.outputs.version }}
+      source_date_epoch: ${{ steps.image.outputs.source_date_epoch }}
+      # The layers of this job's image: release-image-arm64 compares its own with them.
+      image_layers: ${{ steps.image.outputs.image_layers }}
+      # Release mode only: the inputs of release-sign-arm64 and release-image-arm64.
+      unsigned_uki_sha256: ${{ steps.release-export.outputs.unsigned_uki_sha256 }}
+      sealed_image_sha256: ${{ steps.release-export.outputs.sealed_image_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # As in build: release mode makes the UKI with the pinned base's committed PCR policy key and leaves
+      # it unsigned (NYRA_RELEASE=1, ci/build-image.sh); release-sign-arm64 signs it.
+      - name: Release mode
+        id: mode
+        env:
+          RELEASE_MODE: ${{ env.RELEASE == 'true' }}
+        run: |
+          echo "release=$RELEASE_MODE" >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE_MODE" = true ]; then echo "NYRA_RELEASE=1" >> "$GITHUB_ENV"; fi
+          echo "Release mode: $RELEASE_MODE"
 
       - name: The commit of the pinned arm64 base (base/pin-arm64)
         id: pin
@@ -617,7 +638,11 @@ jobs:
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
             --label org.opencontainers.image.base.name="updates.nyraos.com/nyra-base-arm64:$(sed -n 's/^version=//p' base/pin-arm64)" \
             --label org.opencontainers.image.base.digest="$(sed -n 's/^digest=//p' base/pin-arm64)" 2>&1 | tee "$WORK/build.log"
-          echo "uki_cert=$(base64 -w0 "$WORK/build/uki.crt")" >> "$GITHUB_OUTPUT"
+          if [ "${NYRA_RELEASE:-}" = 1 ]; then cert=.nyra-base/files/usr/lib/nyra/secureboot/nyra.crt; else cert="$WORK/build/uki.crt"; fi
+          echo "uki_cert=$(base64 -w0 "$cert")" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_date_epoch=$SOURCE_DATE_EPOCH" >> "$GITHUB_OUTPUT"
+          echo "image_layers=$(sudo podman image inspect -f '{{json .RootFS.Layers}}' localhost/nyra-desktop:ci)" >> "$GITHUB_OUTPUT"
           [ "$(sudo podman image inspect -f '{{.Os}}/{{.Architecture}}' localhost/nyra-desktop:ci)" = linux/arm64 ]
 
       # The arm64 image follows nyra-desktop-arm64, never nyra-desktop or the base's channels.
@@ -654,11 +679,45 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           df -h / "$WORK"
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # Not in release mode: that image has no signed UKI. release-image-arm64 makes the image the tests boot.
+      - name: Upload the image
+        if: steps.mode.outputs.release != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nyra-desktop-arm64-oci-archive
           path: dist/nyra-desktop.oci.tar
           retention-days: 7
+
+      # The inputs of release-sign-arm64, as in build: the unsigned UKI and the sealed image it was made from.
+      - name: Export the unsigned UKI and the sealed image
+        id: release-export
+        if: steps.mode.outputs.release == 'true'
+        run: |
+          mkdir -p release/unsigned
+          files=("$WORK"/build/unsigned/*)
+          [ "${#files[@]}" = 1 ] && [ -f "${files[0]}" ] || { echo "::error::$WORK/build/unsigned must hold exactly the unsigned UKI"; exit 1; }
+          cp "${files[0]}" release/unsigned/
+          sudo podman save --format oci-archive -o release/nyra-desktop-sealed.oci.tar localhost/nyra-desktop:ci-sealed
+          sudo chown -R "$(id -u):$(id -g)" release
+          python3 -I .nyra-base/ci/no-host-keys.py release/nyra-desktop-sealed.oci.tar
+          echo "unsigned_uki_sha256=$(sha256sum < "release/unsigned/${files[0]##*/}" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sealed_image_sha256=$(sha256sum < release/nyra-desktop-sealed.oci.tar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the unsigned UKI
+        if: steps.release-export.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nyra-desktop-arm64-unsigned-uki
+          path: release/unsigned/
+          retention-days: 1
+
+      - name: Upload the sealed image
+        if: steps.release-export.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nyra-desktop-arm64-sealed-oci-archive
+          path: release/nyra-desktop-sealed.oci.tar
+          retention-days: 1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -666,11 +725,265 @@ jobs:
           path: dist/nyra-desktop-arm64.manifest.json
           retention-days: 90
 
+  # Release mode only (build-arm64's `release` output, docs/RELEASE.md, "arm64"): the arm64 twins of
+  # release-sign and release-image, for the repository nyra-desktop-arm64, with the same keys, service
+  # account and checks, from the pinned arm64 base (base/pin-arm64, a checkout of its commit, which must be
+  # on nyra-base's main). release-sign-arm64 runs on x86_64, where Google's KMS library is (it has no arm64
+  # build), and joins the PCR signature into the UKI with the sealed arm64 image's own ukify under Ubuntu's
+  # qemu-user-static (the pinned base's tools/signing/join-pcrsig.sh, which refuses any other emulator).
+  # qemu-user is not a boundary: the container is (no network, no environment, three fresh directories).
+  # Nothing of the x86_64 jobs needs these two, and they need nothing of the x86_64 release.
+  release-sign-arm64:
+    needs: build-arm64
+    if: needs.build-arm64.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      uki_sha256: ${{ steps.sign.outputs.uki_sha256 }}
+    env:
+      KMS_KEY_RING: projects/nyra-signing-3076/locations/europe-west3/keyRings/nyra
+    steps:
+      - name: The KMS variables are set
+        env:
+          KMS_WIF_PROVIDER: ${{ vars.KMS_WIF_PROVIDER }}
+          KMS_SIGNER_SA: ${{ vars.KMS_SIGNER_SA }}
+        run: |
+          if [ -z "$KMS_WIF_PROVIDER" ] || [ -z "$KMS_SIGNER_SA" ]; then
+            echo "::error::KMS_WIF_PROVIDER or KMS_SIGNER_SA is not set: this release cannot be signed (docs/RELEASE.md)."
+            exit 1
+          fi
+
+      # No checkout of this repository: only the pinned arm64 base's tools run here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build-arm64.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      # As in release-sign: the pinned commit must be one that nyra-base's main contains.
+      - name: The pinned base commit is on nyra-base's main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ needs.build-arm64.outputs.base_commit }}
+        run: |
+          [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no pinned base commit"; exit 1; }
+          status="$(gh api "repos/NyraOS/nyra-base/compare/$PIN...main" --jq .status)"
+          case "$status" in
+            ahead|identical) echo "nyra-base $PIN is on main ($status)" ;;
+            *) echo "::error::the pinned base commit $PIN is not on nyra-base's main (compare: $status)"; exit 1 ;;
+          esac
+
+      - name: Stop the runner's automatic image prune
+        run: sudo systemctl stop podman-auto-update.timer podman-auto-update.service
+
+      # Runs as root, so it comes before the auth step: no credential is present yet. The emulator comes from
+      # Ubuntu's archive and is registered here (binfmt_misc, F flag), as in nyra-base's release-sign-arm64.
+      - name: Install sbsign, pefile, the PKCS#11 engine for openssl and qemu-user-static
+        timeout-minutes: 30 # a slow mirror took 12-19 min
+        run: |
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -q >/dev/null
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends libengine-pkcs11-openssl >/dev/null
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends sbsigntool python3-pefile qemu-user-static >/dev/null
+          sudo /usr/lib/systemd/systemd-binfmt /usr/lib/binfmt.d/qemu-aarch64.conf
+          cat /proc/sys/fs/binfmt_misc/qemu-aarch64
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-unsigned-uki
+          path: ${{ runner.temp }}/unsigned
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-sealed-oci-archive
+          path: ${{ runner.temp }}/sealed
+
+      - name: Check both artifacts and load the sealed image
+        env:
+          UNSIGNED_UKI_SHA256: ${{ needs.build-arm64.outputs.unsigned_uki_sha256 }}
+          SEALED_IMAGE_SHA256: ${{ needs.build-arm64.outputs.sealed_image_sha256 }}
+        run: |
+          files=("$RUNNER_TEMP"/unsigned/*)
+          [ "${#files[@]}" = 1 ] && [ -f "${files[0]}" ] || { echo "::error::the unsigned UKI artifact must hold exactly one file"; exit 1; }
+          .nyra-base/ci/check-artifact.sh "${files[0]}" "$UNSIGNED_UKI_SHA256"
+          .nyra-base/ci/check-artifact.sh "$RUNNER_TEMP/sealed/nyra-desktop-sealed.oci.tar" "$SEALED_IMAGE_SHA256"
+          sudo podman load -q -i "$RUNNER_TEMP/sealed/nyra-desktop-sealed.oci.tar"
+          rm "$RUNNER_TEMP/sealed/nyra-desktop-sealed.oci.tar"
+          sudo podman image exists localhost/nyra-desktop:ci-sealed
+          test "$(sudo podman image inspect -f '{{.Os}}/{{.Architecture}}' localhost/nyra-desktop:ci-sealed)" = linux/arm64
+
+      # libkmsp11 reads application default credentials. From here on the job can sign until it ends.
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.KMS_WIF_PROVIDER }}
+          service_account: ${{ vars.KMS_SIGNER_SA }}
+          create_credentials_file: true
+
+      # As release-sign: 1. pcr-policy-1 signs the main profile's PCR 11 policy (sign-kms checks the UKI
+      # first); 2. the join, under qemu-user (join-pcrsig.sh: image code, with no network, no environment,
+      # only fresh directories, never the workspace, which holds the credentials file); 3. the key `uki`
+      # signs the whole file (sign-uki.sh repeats the checks on the joined file and verifies the result
+      # with the committed certificate). libkmsp11 is the x86_64 library of kms-pkcs11.sh.
+      - name: Sign the PCR policy and the UKI in the KMS
+        id: sign
+        run: |
+          base=.nyra-base
+          secureboot="$base/files/usr/lib/nyra/secureboot"
+          files=("$RUNNER_TEMP"/unsigned/*)
+          name="${files[0]##*/}"
+          tmp="$(mktemp -d)"
+          . "$base/tools/signing/kms-pkcs11.sh" "$tmp" "$KMS_KEY_RING"
+          join="$RUNNER_TEMP/join"
+          python3 -I "$base/tools/signing/pcr-policy.py" sign-kms "${files[0]}" "$secureboot/tpm2-pcr-public-key.pem" \
+            'pkcs11:object=pcr-policy-1;type=private' > "$RUNNER_TEMP/pcrsig.json"
+          "$base/tools/signing/join-pcrsig.sh" localhost/nyra-desktop:ci-sealed linux/arm64 "${files[0]}" "$RUNNER_TEMP/pcrsig.json" "$join"
+          PCR_PUBKEY="$secureboot/tpm2-pcr-public-key.pem" "$base/tools/signing/sign-uki.sh" "$join/out" "$join/signed" \
+            --engine pkcs11 --key 'pkcs11:object=uki;type=private' --cert "$secureboot/nyra.crt"
+          echo "uki_sha256=$(sha256sum < "$join/signed/$name" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # One day of retention: this UKI is signed with the release keys whether or not the tests pass.
+      - name: Upload the signed UKI
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nyra-desktop-arm64-release-uki
+          path: ${{ runner.temp }}/join/signed/
+          retention-days: 1
+
+  # As release-image, on an arm64 runner (the final image's RUN steps are arm64 code), with no id-token;
+  # also checks that the image is linux/arm64 and follows nyra-desktop-arm64.
+  release-image-arm64:
+    needs: [build-arm64, release-sign-arm64]
+    if: needs.build-arm64.outputs.release == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      image_sha256: ${{ steps.export.outputs.image_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build-arm64.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      - name: Podman, no automatic image prune, the work directory
+        timeout-minutes: 30
+        run: |
+          command -v podman >/dev/null || { sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -q && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends podman; }
+          if systemctl list-unit-files podman-auto-update.timer >/dev/null 2>&1; then
+            sudo systemctl stop podman-auto-update.timer podman-auto-update.service
+          fi
+          if mountpoint -q /mnt; then work=/mnt/work; else work="$HOME/work"; fi
+          sudo mkdir -p "$work" && sudo chown "$(id -u):$(id -g)" "$work"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-release-uki
+          path: ${{ runner.temp }}/signed
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-sealed-oci-archive
+          path: ${{ runner.temp }}/sealed
+
+      - name: Check both artifacts and load the sealed image
+        env:
+          SIGNED_UKI_SHA256: ${{ needs.release-sign-arm64.outputs.uki_sha256 }}
+          SEALED_IMAGE_SHA256: ${{ needs.build-arm64.outputs.sealed_image_sha256 }}
+        run: |
+          files=("$RUNNER_TEMP"/signed/*)
+          [ "${#files[@]}" = 1 ] && [ -f "${files[0]}" ] || { echo "::error::the signed UKI artifact must hold exactly one file"; exit 1; }
+          .nyra-base/ci/check-artifact.sh "${files[0]}" "$SIGNED_UKI_SHA256"
+          .nyra-base/ci/check-artifact.sh "$RUNNER_TEMP/sealed/nyra-desktop-sealed.oci.tar" "$SEALED_IMAGE_SHA256"
+          sudo podman load -q -i "$RUNNER_TEMP/sealed/nyra-desktop-sealed.oci.tar"
+          rm "$RUNNER_TEMP/sealed/nyra-desktop-sealed.oci.tar"
+          sudo podman image exists localhost/nyra-desktop:ci-sealed
+
+      # The same version, timestamp and options as build-arm64's image step.
+      - name: Build the release image
+        env:
+          VERSION: ${{ needs.build-arm64.outputs.version }}
+          SOURCE_DATE_EPOCH: ${{ needs.build-arm64.outputs.source_date_epoch }}
+        run: |
+          base_version="$(sed -n 's/^version=//p' base/pin-arm64)"
+          base_digest="$(sed -n 's/^digest=//p' base/pin-arm64)"
+          ci/final-image.sh localhost/nyra-desktop:ci-sealed "$RUNNER_TEMP/signed" localhost/nyra-desktop:ci \
+            --annotation org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.source="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.base.name="updates.nyraos.com/nyra-base-arm64:$base_version" \
+            --label org.opencontainers.image.base.digest="$base_digest"
+
+      - name: Same layers as the image build-arm64 checked
+        env:
+          BUILT_LAYERS: ${{ needs.build-arm64.outputs.image_layers }}
+        run: |
+          sealed="$(sudo podman image inspect -f '{{json .RootFS.Layers}}' localhost/nyra-desktop:ci-sealed)"
+          final="$(sudo podman image inspect -f '{{json .RootFS.Layers}}' localhost/nyra-desktop:ci)"
+          jq -n -e --argjson built "$BUILT_LAYERS" --argjson sealed "$sealed" --argjson final "$final" '
+            ($sealed | length) as $n
+            | ($final | length) == ($built | length) and ($final | length) > $n
+              and $final[:$n] == $sealed
+              and ($final | del(.[$n])) == ($built | del(.[$n]))' >/dev/null || {
+            echo "::error::The release image's layers are not build-arm64's, except for the UKI's: build $BUILT_LAYERS, release $final, sealed image $sealed."
+            exit 1
+          }
+
+      - name: The image is arm64 and follows nyra-desktop-arm64 (ci/check-image-repository.sh)
+        env:
+          VERSION: ${{ needs.build-arm64.outputs.version }}
+        run: |
+          [ "$(sudo podman image inspect -f '{{.Os}}/{{.Architecture}}' localhost/nyra-desktop:ci)" = linux/arm64 ]
+          ci/check-image-repository.sh localhost/nyra-desktop:ci nyra-desktop-arm64 "$VERSION"
+
+      # The gate a signature of the image will need (the pinned base's tool, on the image's own files).
+      - name: UKI release gate (signed with the committed Nyra certificate)
+        run: |
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -q >/dev/null && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends sbsigntool python3-pefile >/dev/null
+          cid="$(sudo podman create -q localhost/nyra-desktop:ci)"
+          sudo podman cp "$cid:/boot" "$WORK/boot"
+          sudo podman cp "$cid:/usr/lib/nyra/secureboot/tpm2-pcr-public-key-next.pem" "$WORK/image-next.pem"
+          sudo podman cp "$cid:/usr/lib/nyra/secureboot/tpm2-pcr-retired-keys" "$WORK/image-retired"
+          sudo podman rm -f "$cid" >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" "$WORK/boot" "$WORK/image-next.pem" "$WORK/image-retired"
+          s=.nyra-base/files/usr/lib/nyra/secureboot
+          .nyra-base/tools/signing/uki-gate.sh "$WORK/boot" "$s/nyra.crt" "$s/tpm2-pcr-public-key.pem" \
+            "$s/tpm2-pcr-public-key-next.pem" "$WORK/image-next.pem" "$s/tpm2-pcr-retired-keys" "$WORK/image-retired"
+
+      - name: Export the release image
+        id: export
+        run: |
+          mkdir -p dist
+          sudo podman save --format oci-archive -o dist/nyra-desktop.oci.tar localhost/nyra-desktop:ci
+          sudo chown -R "$(id -u):$(id -g)" dist
+          echo "image_sha256=$(sha256sum < dist/nyra-desktop.oci.tar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # One day of retention, like the signed UKI: it boots and unlocks disks whether or not the tests pass.
+      - name: Upload the release image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nyra-desktop-arm64-release-oci-archive
+          path: dist/nyra-desktop.oci.tar
+          retention-days: 1
+
   # The arm64 image booted: Secure Boot to the login screen and a Plasma session (tests/vm/plasma-arm64.sh).
   # No KVM on GitHub's arm64 runners (October 2026): QEMU emulates the CPU, and the guest takes several times
   # as long as on x86_64. The waits inside the guest add up to well under the job's limit (120 minutes).
+  # In release mode it boots release-image-arm64's image, not build-arm64's (so no second boot), and the run
+  # fails if that job did not succeed (a skipped boot would count as passed), as for the x86_64 boot.
   boot-arm64:
-    needs: build-arm64
+    needs: [build-arm64, release-image-arm64]
+    if: ${{ !cancelled() && needs.build-arm64.result == 'success' && (needs.build-arm64.outputs.release != 'true' || needs.release-image-arm64.result == 'success') }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 120
     steps:
@@ -707,13 +1020,16 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: nyra-desktop-arm64-oci-archive
+          name: ${{ needs.build-arm64.outputs.release == 'true' && 'nyra-desktop-arm64-release-oci-archive' || 'nyra-desktop-arm64-oci-archive' }}
           path: ${{ env.WORK }}
 
       - name: Load the image
         env:
+          RELEASE: ${{ needs.build-arm64.outputs.release }}
           IMAGE_SHA256: ${{ needs.build-arm64.outputs.image_sha256 }}
+          RELEASE_IMAGE_SHA256: ${{ needs.release-image-arm64.outputs.image_sha256 }}
         run: |
+          [ "$RELEASE" != true ] || IMAGE_SHA256="$RELEASE_IMAGE_SHA256"
           [ "$(sha256sum < "$WORK/nyra-desktop.oci.tar" | cut -d' ' -f1)" = "$IMAGE_SHA256" ] ||
             { echo "::error::the image artifact is not the one the build job made"; exit 1; }
           sudo podman load -q -i "$WORK/nyra-desktop.oci.tar"

@@ -20,7 +20,7 @@ and the policy key, not a repository, so a new key would mean a new MOK enrollme
 desktop UKI therefore boots on every Nyra machine, and what can sign it is as serious as what can sign the
 base's. The caller in the KMS is its own service account (`nyra-desktop-release-signer`, with the roles
 `signerVerifier` on exactly these two keys and nothing on the others), so it has its own audit trail and
-can be revoked on its own. Every run of `release-sign` counts as a release when revoking, whether or not
+can be revoked on its own. Every run of `release-sign` or `release-sign-arm64` counts as a release when revoking, whether or not
 the tests pass afterwards.
 
 The jobs of a release run, in `image.yml`:
@@ -47,9 +47,31 @@ The jobs of a release run, in `image.yml`:
 If `KMS_WIF_PROVIDER` or `KMS_SIGNER_SA` is not set, `release-sign` fails (red, not skipped). There is no
 switch inside the run: the variable `DESKTOP_RELEASE` is the switch, and the other way back is to unset it.
 
-x86_64 only in this step. The arm64 release (`release-sign-arm64`, `release-image-arm64`, repository
-`nyra-desktop-arm64`) is the same jobs on the arm64 build, added with it; the build scripts already take the
-repository as a parameter.
+## arm64
+
+The arm64 image has its own release jobs in `image.yml`, in release mode only and by the same rule (a push
+or manual run on `main` with `DESKTOP_RELEASE` `on`; there is no separate variable). They are the jobs above
+on the arm64 build, with the same keys, certificate, service account and variables, for the repository
+`nyra-desktop-arm64` and the version rule of `docs/IMAGE.md`, "Identity" (it is the run's number, so the
+x86_64 and arm64 images of one run have the same version):
+
+- `build-arm64` makes the unsigned UKI and the sealed image (`NYRA_RELEASE=1`) and reports their sha256.
+- `release-sign-arm64` (the second job with `id-token: write`, exactly `contents: read` and `id-token:
+  write`, no environment) checks out the pinned **arm64** base (`base/pin-arm64`, whose commit must be on
+  nyra-base's `main`), checks both files against `build-arm64`'s hashes, authenticates, and signs as
+  `release-sign` does with the pinned base's tools only, without checking out this repository. It runs on
+  x86_64, because Google's KMS library has no arm64 build, so the join of the PCR signature into the UKI
+  runs the sealed arm64 image's `ukify` under Ubuntu's `qemu-user-static` (installed and registered before
+  the authentication step; the pinned base's `join-pcrsig.sh` refuses any other emulator). The emulator is
+  not a boundary, the container is: no network, no environment, three fresh directories, never the
+  workspace.
+- `release-image-arm64` (no token, an arm64 runner) builds the final image with the signed UKI, requires the
+  same layers as `build-arm64`'s image except the one with the UKI, checks that the image is `linux/arm64`
+  and follows `nyra-desktop-arm64` with its version, and runs the pinned base's UKI release gate.
+- `boot-arm64` boots **that** image, emulated (about an hour and a half), instead of `build-arm64`'s: in
+  release mode there is still one boot, and the run fails if `release-image-arm64` did not succeed.
+
+An arm64 failure does not hold back the x86_64 release, and the x86_64 jobs need none of these.
 
 ## Who can sign
 
@@ -57,7 +79,8 @@ Only the jobs `release-sign` and `release-sign-arm64` of `image.yml` may have `i
 exactly `contents: read` and `id-token: write` and **no environment**. The identity provider in Google
 Cloud accepts a token only for this repository (by ID), `refs/heads/main`, a push or manual run,
 a GitHub-hosted runner, the caller `workflow_ref` and the file `job_workflow_ref` both `image.yml`, and the
-`sub` of a job without an environment. Pull requests, forks, tags, other workflows and other repositories of
+`sub` of a job without an environment. Both signing jobs run on GitHub-hosted x86_64 runners and match the
+same conditions; nothing in the provider is specific to an architecture. Pull requests, forks, tags, other workflows and other repositories of
 the organization get nothing.
 
 `ci/check-credential-jobs.py` enforces the repository's side of it, on every workflow, and runs as the
@@ -101,4 +124,4 @@ is set:
 ## What is not here yet
 
 The keyless signature of the image for the registry, the `publish` environment and the publishing jobs
-are the next step. Nothing of this repository is published by `release-sign` and `release-image`.
+are the next step. Nothing of this repository is published by the release jobs, x86_64 or arm64.
