@@ -10,7 +10,11 @@ plasma-desktop        the desktop itself: panel, application launcher, desktop a
 qt6-wayland           Qt's Wayland platform plugin, which every Qt program of the session needs
 dbus-user-session     the user's D-Bus session bus, started by systemd, which the Plasma session uses
 konsole               the terminal, the one KDE application that stays in the desktop
-fonts-noto-core       Noto Sans, Plasma's default font
+fonts-noto-core       Noto Sans, Plasma's default font, and the fonts of Arabic, Hebrew, the Indic and South-East Asian scripts, Greek, Cyrillic and the other alphabets
+fonts-noto-cjk        Chinese, Japanese and Korean glyphs, which no other font of the list has
+locales-all           every glibc locale precompiled, so the user picks a language without the network and without locale-gen
+hunspell-en-us        English spelling dictionary of KDE's text fields (Sonnet); the dictionaries of other languages are on demand
+hunspell-ro           Romanian spelling dictionary of the same text fields
 libgl1-mesa-dri       Mesa's OpenGL drivers, with llvmpipe for machines without a GPU driver
 libegl-mesa0          Mesa's EGL, which KWin renders with
 udisks2               mounts removable media (an SD card) for the logged-in user, under /run/media/<user>/<label>

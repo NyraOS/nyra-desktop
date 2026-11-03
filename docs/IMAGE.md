@@ -130,6 +130,44 @@ that a shutdown hangs the console up first) turns that conflict into dropping SD
 boot transaction: without the mask SDDM does not start at boot. The other consoles still get a login
 prompt when a user switches to them.
 
+## Languages
+
+The image has no language of its own: nothing in `/usr` or `/etc` sets `LANG`, the keyboard layout or the
+time zone. The user chooses them at the first boot (systemd-firstboot) or in the installer, and later in
+Settings; `localectl` writes them to `/etc/locale.conf`, `/etc/vconsole.conf` and
+`/etc/X11/xorg.conf.d/00-keyboard.conf`. Anything the choice needs is in the image, so that no language
+needs the network. Romanian is not special in the image: a default time zone of Europe/Bucharest for
+Romanian speakers only belongs to the installer's choice, not to a file here.
+
+What carries a language, measured on the pinned base's snapshot (installed size; download is the
+compressed `.deb`):
+
+| Part | Package | Installed | Download | Decision |
+|---|---|---|---|---|
+| Locales: all 328 UTF-8 locales and 182 legacy ones (ISO-8859-x), precompiled | `locales-all` | 237 MB (UTF-8 only: 215 MB, about 0.65 MB each) | 11 MB | in the image |
+| The same, built with `localedef` into one `locale-archive`, one locale per language (210) | `locales` and a build step | 197 MB | 15 MB (zstd) | not used: no smaller, and 11 minutes of build time |
+| Fonts of the alphabets, Arabic, Hebrew, Indic and South-East Asian scripts | `fonts-noto-core` | 42 MB | 12 MB | in the image |
+| Chinese, Japanese and Korean | `fonts-noto-cjk` | 91 MB | 57 MB | in the image |
+| More Noto scripts, CJK weights | `fonts-noto-extra`, `fonts-noto-cjk-extra` | 334 MB, 215 MB | 72 MB, 134 MB | not used: rare scripts and extra weights |
+| Spelling dictionaries | `hunspell-en-us`, `hunspell-ro` | 1.6 MB, 4.3 MB | 0.6 MB, 1.2 MB | in the image |
+| Other dictionaries | `hunspell-<language>` | 0.5 MB to 71 MB (Turkish), 2 to 10 MB for most | | on demand |
+| Translations of Plasma, KDE applications and the login screen | the packages that already carry them | 267 MB for 198 languages | | nothing to add |
+| Input methods for Chinese, Japanese and Korean | `fcitx5` and its engines | about 4 MB | | on demand: not in the image, so nothing starts |
+
+So a language adds about 0.65 MB, and all of them together about 376 MB installed and about 82 MB to download
+(locales 237, fonts 42 and 91, dictionaries 6 MB installed). A shorter list would save at most that 0.65 MB per locale; one
+package with all of them keeps the mechanism to a single line of the package list, and the Settings
+language list and the first-boot prompt offer every one.
+
+`localectl list-locales` and Settings list only UTF-8 locales, so the legacy ones in `locales-all` are
+never offered; removing them would save 29 MB (12%) and a step in the build, and is not done. Settings'
+own locale generator (`org.kde.localegenhelper`, in `image/added.txt`) cannot add a locale to the
+read-only `/usr`; no locale is missing for it to add.
+
+Right-to-left (Arabic, Hebrew) and Asian text need only the fonts: Qt and KWin mirror the layout from
+the locale. The VM test checks that a font has a letter of each script (`tests/vm/fixtures/languages.sh`)
+and takes screenshots of the login screen and the session in Japanese and in Arabic.
+
 ## UKI
 
 `ci/build-image.sh` makes the desktop's UKI the way nyra-base makes its own on a pull request, with

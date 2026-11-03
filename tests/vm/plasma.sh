@@ -14,7 +14,13 @@
 # screen itself is checked by its greeter running and by its screenshot, not by typing a password.
 # Then one test per category of the image's packages (docs/TESTING.md): an SD card that is mounted by
 # itself, a page printed to a virtual IPP printer, sound played and recorded through PipeWire, and an
-# H.264 video decoded. The devices are the VM's (an SD card on an SDHCI controller, an HDA sound card
+# H.264 video decoded. Last, the languages (docs/TESTING.md): fixtures/languages.sh checks the locales,
+# translations and fonts of English, Romanian, Japanese and Arabic and the long list of locales, then
+# fixtures/language-session.sh sets Japanese and Arabic with localectl, as the installer does, and checks
+# the login screen and the Plasma session in each, with a screenshot of both.
+# With every locale in the image, systemd-firstboot asks for one at the first boot and waits for an answer
+# on the console; the installer answers it (nyra-first-admin), so the test does too, with a credential.
+# The devices are the VM's (an SD card on an SDHCI controller, an HDA sound card
 # without a host backend); the printer is ippeveprinter on the host, which the guest reaches at QEMU's
 # 10.0.2.2. They need cups-ipp-utils and avahi-daemon (ippeveprinter registers with it), dosfstools
 # and mount on the host. Everything these tests set is set in the VM at run time, never in the image.
@@ -70,7 +76,7 @@ sd="$sb/sd.img"
 truncate -s 64M "$sd"
 mkfs.vfat -n NYRASD "$sd" >/dev/null
 sudo mount -o loop,uid="$(id -u)" "$sd" "$mnt"
-cp "$here/fixtures/h264.mp4" "$mnt/"
+cp "$here/fixtures/h264.mp4" "$here/fixtures/languages.sh" "$here/fixtures/language-session.sh" "$mnt/"
 sudo umount "$mnt"
 
 # The virtual IPP printer: it keeps every document it gets in WORKDIR/printed (-k).
@@ -102,7 +108,10 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-device --qemu=sdhci-pci --qemu=-device --qemu=sd-card,drive=sd0 \
   --qemu=-audiodev --qemu=none,id=snd0 --qemu=-device --qemu=intel-hda --qemu=-device --qemu=hda-duplex,audiodev=snd0 \
   --smbios "io.systemd.stub.kernel-cmdline-extra=console=ttyS0" \
+  --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
   --qmp "$(shot login-screen)" --qmp "$(shot plasma-session)" \
+  --qmp "$(shot login-screen-ja)" --qmp "$(shot plasma-session-ja)" \
+  --qmp "$(shot login-screen-ar)" --qmp "$(shot plasma-session-ar)" \
   --log "$logs/serial-plasma.log" --summary "$summary" \
   --title "Desktop: Secure Boot to the login screen, then a Plasma session" \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
@@ -119,6 +128,9 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command "$wait_for '$u pw-cli ls Node | grep -q alsa_output && $u pw-cli ls Node | grep -q alsa_input' && $u wpctl status" \
   --command "$u ffmpeg -nostdin -v error -f lavfi -i sine=frequency=440:duration=2 -ar 48000 -ac 2 /tmp/tone.wav && { $u pw-record -P stream.capture.sink=true /tmp/monitor.wav & sleep 2; r=0; $u pw-play /tmp/tone.wav || r=1; sleep 1; pkill -INT -u nyratest -x pw-record; sleep 1; test \$r = 0; } && m=\"\$($u ffmpeg -nostdin -i /tmp/monitor.wav -af volumedetect -f null - 2>&1 | sed -n 's/.*max_volume: \\(-*[0-9.]*\\) dB.*/\\1/p')\" && echo \"the sink's monitor heard the tone, max_volume=\$m dB\" && awk -v m=\"\$m\" 'BEGIN { exit !(m != \"\" && m > -40) }' && { $u timeout -s INT 3 pw-record --rate 48000 /tmp/rec.wav; true; } && ls -l /tmp/rec.wav && test \"\$(stat -c %s /tmp/rec.wav)\" -gt 48000" \
   --command "v=\"\$($u ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,nb_frames -of csv=p=0 $card/h264.mp4)\"; echo \"\$v\"; test \"\$v\" = h264,10; h=\"\$($u ffmpeg -nostdin -v error -i $card/h264.mp4 -map 0:v -c:v rawvideo -pix_fmt yuv420p -f hash -hash sha256 -)\"; echo \"\$h\"; test \"\$h\" = SHA256=$clip_sha256" \
+  --command "sh $card/languages.sh" \
+  --command "sh $card/language-session.sh ja_JP.UTF-8 jp jp ja" \
+  --command "sh $card/language-session.sh ar_SA.UTF-8 ara ara ar" \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
 
 # The page the guest printed reached the printer on the host: a file of the job, not empty.

@@ -98,6 +98,7 @@ args+=(--command 'sleep 90; test "$(pgrep -u nyratest -x plasmashell)" = "$(cat 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout "$boot_timeout" \
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
+  --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
   --qmp "$(shot login-screen)" --qmp "$(shot login-screen-2)" --qmp "$(shot plasma-session)" --qmp "$(shot plasma-session-2)" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
