@@ -53,6 +53,11 @@ sleep 3
 mkdir -p /etc/sddm.conf.d
 printf '[Autologin]\nUser=nyratest\nSession=plasma.desktop\n' > /etc/sddm.conf.d/99-nyra-test.conf
 loginctl terminate-user nyratest 2>/dev/null || true
+# Plasma writes [Formats] LANG of the language it first started in to the user's plasma-localerc (measured
+# in CI: en_US from the test user's first session), and startplasma then lets that file win over the
+# system language. A user who chose a language at the installer has the file in that language; this test
+# user is reused for each language, so its file is removed to be a user who has not been in Plasma yet.
+rm -f ~nyratest/.config/plasma-localerc
 systemctl restart sddm.service
 w "$session"
 sleep 90
