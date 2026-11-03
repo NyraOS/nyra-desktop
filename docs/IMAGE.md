@@ -251,7 +251,7 @@ the SBOM, the report and the package list are the `nyra-desktop-sbom` artifact.
 The desktop is built for aarch64 too, so that it can run in a virtual machine on Apple Silicon (UTM).
 x86_64 stays the reference; nothing of its build or tests waits for the arm64 jobs (`build-arm64` and
 `boot-arm64` of `image.yml`, which are part of that file, with the same permissions: `contents: read`
-only).
+only; the release jobs of `docs/RELEASE.md` are the exception, and only `release-sign-arm64` has a token).
 
 - **The base** is `nyra-base-arm64`, pinned by `base/pin-arm64` (the same four lines as `base/pin`, with
   `architecture=arm64`; the version and the commit are the x86_64 release's, as the two are one run of
@@ -273,5 +273,7 @@ only).
 - **Not done on arm64:** the SBOM and the vulnerability scan (nyra-base's scanner reads the amd64
   package index only; the arm64 package list is the `nyra-desktop-arm64-packages` artifact), and the
   SD card, printing, sound and video tests (`docs/TESTING.md`, "Level 2 on aarch64").
+- **Release:** in release mode (`docs/RELEASE.md`, "arm64") the arm64 build is signed too, by
+  `release-sign-arm64` and `release-image-arm64`, and `boot-arm64` boots the release image.
 - **Time:** the arm64 runners have no KVM, so the boot is emulated and slower; the job limits are 90
   minutes for the build and 120 for the boot (`docs/TESTING.md`).
