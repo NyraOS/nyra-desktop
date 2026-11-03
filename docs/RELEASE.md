@@ -1,9 +1,15 @@
 # Releasing the desktop image
 
-This is how the desktop image is signed for release. It is **off** until the repository variable
-`DESKTOP_RELEASE` is `on`: with the variable unset, every run builds and boot-tests the image as before
-(`docs/IMAGE.md`), with keys made for the run, and nothing here runs. Publishing the image and the signature
-of the image for the registry are not part of this step.
+This is how the desktop image is signed for release and published to `updates.nyraos.com`. It is **off**
+until the repository variable `DESKTOP_RELEASE` is `on`: with the variable unset, every run builds and
+boot-tests the image as before (`docs/IMAGE.md`), with keys made for the run, and nothing here runs. The
+image signature and publishing need a second variable, `PUBLISH_ENABLED`, `on` as well.
+
+**None of it can run today.** Every switch is the owner's (see "What the owner sets"): the Google Cloud setup
+script, the repository variables, the environments `sign` and `publish` with their tokens, the ruleset on
+`main`. Two code changes come first as well: `publish` and `publish-arm64` need `UPDATES_PIN` (empty until
+the nyra-updates pull request that allows the desktop repositories is merged), and the sign jobs need a
+pinned base whose signature policy trusts the desktop's signer (`base/pin`, `base/pin-arm64`).
 
 ## What is signed, and with which keys
 
@@ -75,7 +81,7 @@ An arm64 failure does not hold back the x86_64 release, and the x86_64 jobs need
 
 ## Who can sign
 
-Only the jobs `release-sign` and `release-sign-arm64` of `image.yml` may have `id-token: write`, with
+Only the jobs `release-sign` and `release-sign-arm64` of `image.yml` may reach the KMS. They have
 exactly `contents: read` and `id-token: write` and **no environment**. The identity provider in Google
 Cloud accepts a token only for this repository (by ID), `refs/heads/main`, a push or manual run,
 a GitHub-hosted runner, the caller `workflow_ref` and the file `job_workflow_ref` both `image.yml`, and the
@@ -83,45 +89,151 @@ a GitHub-hosted runner, the caller `workflow_ref` and the file `job_workflow_ref
 same conditions; nothing in the provider is specific to an architecture. Pull requests, forks, tags, other workflows and other repositories of
 the organization get nothing.
 
+Only `sign` and `sign-arm64` may reach the image signer, `nyra-desktop-image-signer`, with the same
+permissions and **exactly the environment `sign`**: its provider (in its own pool, `github-desktop-sign`,
+which holds no other provider) checks the same conditions and the environment `sign` instead of the `sub`.
+The KMS provider's `sub` check keeps those two jobs away from the KMS, and the image signer has no role on
+any key. The base's signature policy trusts this signer only for `nyra-desktop` and `nyra-desktop-arm64`,
+so it can never vouch for a base image, and the base's signer never for a desktop one.
+
 `ci/check-credential-jobs.py` enforces the repository's side of it, on every workflow, and runs as the
 required check **`credential-jobs`** (`.github/workflows/credentials.yml`) on every pull request:
 
 - `id-token` (a job's, the workflow's, `write-all`, or permissions that are not a mapping) only in those
-  two jobs;
-- no job may use an environment named `sign` or `publish`, and no expression in an environment name (the
-  jobs that need them come with the image signature and publishing);
+  two jobs and in `sign` and `sign-arm64`, each with exactly `contents: read` and `id-token: write`;
+- `sign` and `sign-arm64` have exactly `environment: sign`; `publish` and `publish-arm64` have exactly
+  `environment: publish` and `permissions: {contents: read}` (so never an id-token); the verify jobs have no
+  environment and exactly `contents: read`; no other job may use `sign` or `publish`, and no environment
+  name has an expression in it;
 - a job that calls a reusable workflow has exactly `permissions: {contents: read}` and passes no
   `secrets:`; `secrets: inherit` is never allowed;
 - `image.yml` has no `workflow_call` trigger: nothing may call the workflow that holds the signing jobs.
 
+The same workflow runs the pinned base's own lints of these jobs, `ci/check-sign-jobs.py` and
+`ci/check-publish-job.py` (from the commit in `base/pin`): they also refuse the R2 and Cloudflare secrets
+anywhere but the publish jobs.
+
 The lint catches mistakes. Against a deliberate change the controls are review of `.github/` and `ci/`
-(CODEOWNERS) and the ruleset on `main` below: the KMS provider trusts whatever runs on `main`.
+(CODEOWNERS) and the ruleset on `main` below: both providers trust whatever runs on `main`.
+
+## The image signature
+
+In a release run with `PUBLISH_ENABLED` `on`, after `boot` passed on the release image:
+
+1. `sign` (environment `sign`, exactly `contents: read` and `id-token: write`) loads the release image
+   (checked against `release-image`'s hash) into a throwaway registry as `updates.nyraos.com/nyra-desktop`,
+   and refuses to sign unless:
+   - the image follows `nyra-desktop` with this run's version and a `version_floor` not above it
+     (`ci/check-image-repository.sh`);
+   - the signature policy the image ships is the pinned base's file, unchanged, and its scope
+     `updates.nyraos.com/nyra-desktop` trusts exactly this signer (`GCP_SIGNER_SA`), keyless, with
+     `matchRepository` (`ci/check-signer-policy.sh`). Without that scope the host scope applies, which
+     trusts only the base's signer: a machine running the image would refuse its next update. nyra-base
+     has these scopes from its "per-repository image signers" change on; the pins must be at least there;
+   - the pinned base's UKI release gate passes on the image's `/boot`.
+
+   It then signs the manifest with cosign (the base's version and hash) as `nyra-desktop-image-signer`,
+   a keyless Fulcio identity that only the provider of the environment `sign` can reach and that has no
+   other role. No code of the image runs in the job. The signature is uploaded as an OCI layout.
+2. `verify-signature` (no token, no environment) puts the image and the signature into a throwaway registry
+   and runs the image's own `skopeo` with the policy the image ships (`ci/test-signature.sh`): the image is
+   accepted under `nyra-desktop`; an unsigned image, the signature moved onto another image, and the image
+   with its signature copied to `nyra-desktop-arm64`, `nyra-base` or `nyra-base-arm64` are all refused.
+
+If `GCP_WIF_PROVIDER` or `GCP_SIGNER_SA` is not set, `sign` fails (red, not skipped).
+
+## Publishing
+
+3. `publish` (environment `publish`: `main` only, the owner approves every run) holds the R2 and KV
+   tokens and has exactly `contents: read`, so it can never sign. It runs no code of the image and reads
+   no value from the artifacts that it does not check against a job output (`ci/check-publish.sh`): the
+   archive's hash, one manifest equal to the digest `sign` signed, the signature layout `sign` exported,
+   and in the signed config the version, the commit of the run and `linux/amd64`. It then runs nyra-updates'
+   `registry/scripts/publish-image.sh` at `UPDATES_PIN` (fetched without a token, and refused unless it is
+   on nyra-updates' `main`): the signature first, then the version tag. The script never re-points a
+   released version.
+4. `verify-published` (no secret, no environment) pulls `updates.nyraos.com/nyra-desktop:<version>` the way
+   a machine does, with the pinned base's policy, by tag and by digest, and checks the digest, the
+   architecture and both labels (`ci/verify-published.sh`). Red here is an incident to look into, not a
+   reason to publish again.
+
+The channel sheets are not touched: putting a release on a channel is a reviewed pull request in
+nyra-updates (`channels/nyra-desktop/releases.json`, then the channel). The summary of `publish` prints the
+`releases.json` line.
+
+**`UPDATES_PIN` is empty today.** It must be the merge commit of the nyra-updates pull request that adds
+`nyra-desktop` and `nyra-desktop-arm64` to the repository allow-list (`publish-image.sh` and the registry's
+`REPOSITORIES`). Until it is set, `publish` and `publish-arm64` fail before anything is read. It moves only by
+a reviewed pull request that reads the nyra-updates diff from the old pin to the new one, the same value in
+both jobs.
+
+### Rollback and the version floor
+
+- **No release below a published one.** `ci/check-publish.sh` refuses a version that is not newer than every
+  version in `channels/<repository>/releases.json` on nyra-updates' `main`, and one already listed. The run
+  number only grows, so this only stops a mistake (an old run re-run, a changed version rule).
+- **The floor.** `sign` refuses an image whose `version_floor` is above its own version, and nyra-updated
+  refuses any target below the floor, signed retractions included (`docs/IMAGE.md`, "Identity").
+- **A machine that switched from the base.** Its rollback deployment is a base version, counted in the
+  base's build numbers, so usually higher than the desktop's. nyra-updated (nyra-base,
+  `updated/daemon/src`) never compares that number with a desktop sheet: an update must be newer than the
+  **booted** version (`check_newer`); the rollback deployment is only compared with the floor, to decide
+  whether "go back to the previous version" may offer it (`offered_rollback`); retractions, failed versions
+  and versions gone back from are matched by digest, not version; and the last accepted sheet is kept per
+  `repository:channel`, so the desktop's sheets start their own sequence. Going back to the base deployment
+  stays possible, and the base deployment then follows the base's channel again.
+
+## arm64 publishing
+
+`sign-arm64`, `verify-signature-arm64`, `publish-arm64` and `verify-published-arm64` are the same jobs for
+the repository `nyra-desktop-arm64` and `linux/arm64`, by the same switches, environments, signer and pin,
+after `boot-arm64` passed on the arm64 release image. `sign-arm64` runs on x86_64 (it only reads the arm64
+image); `verify-signature-arm64` and `verify-published-arm64` run on arm64, so the image's own `skopeo` runs
+natively. `publish-arm64` has its own concurrency group. The two architectures do not wait for each other.
 
 ## What the owner sets
 
-The values are printed by the Google Cloud setup script.
+Nothing here runs until all of it is set. The values of the four Google Cloud variables are printed by the
+Google Cloud setup script (it creates `nyra-desktop-release-signer`, `nyra-desktop-image-signer`, the provider
+`github/nyra-desktop` and the pool `github-desktop-sign` with its one provider `nyra-desktop-sign`).
 
-Repository variables (Settings, Secrets and variables, Actions, Variables):
+In this order:
 
-| Variable | Value |
-|---|---|
-| `KMS_WIF_PROVIDER` | the provider `github/nyra-desktop` of the pool `github` |
-| `KMS_SIGNER_SA` | `nyra-desktop-release-signer@<project>.iam.gserviceaccount.com` |
-| `DESKTOP_RELEASE` | `on`, set last |
+1. **A ruleset on `main`**, before the script runs: pull request required, the required checks (including
+   `credential-jobs`), no force push, no deletion, an empty bypass list (administrators included). The
+   providers trust `main`, so `main` must be protected.
+2. **Actions settings**: the default workflow token read-only, "Allow GitHub Actions to create and approve
+   pull requests" off, approval for workflow runs from all outside contributors.
+3. **The Google Cloud setup script**, then the repository variables (Settings, Secrets and variables,
+   Actions, Variables):
 
-(`GCP_WIF_PROVIDER` and `GCP_SIGNER_SA` are printed too: they belong to the image signature and are used
-by the next step, not by this one.)
+   | Variable | Value |
+   |---|---|
+   | `KMS_WIF_PROVIDER` | `projects/<project number>/locations/global/workloadIdentityPools/github/providers/nyra-desktop` |
+   | `KMS_SIGNER_SA` | `nyra-desktop-release-signer@<project>.iam.gserviceaccount.com` |
+   | `GCP_WIF_PROVIDER` | `projects/<project number>/locations/global/workloadIdentityPools/github-desktop-sign/providers/nyra-desktop-sign` |
+   | `GCP_SIGNER_SA` | `nyra-desktop-image-signer@<project>.iam.gserviceaccount.com` (the address the base's policy names for the desktop scopes) |
 
-No secrets and no environments are used by this step. Before the script runs, and before `DESKTOP_RELEASE`
-is set:
+4. **Environment `sign`** (Settings, Environments): deployment branches: the selected branch `main` only,
+   no tag rule; no secrets; no reviewer.
+5. **Environment `publish`**: deployment branches: `main` only, no tag rule; required reviewer: the owner;
+   "Allow administrators to bypass" off; no wait timer. Its secrets, and nowhere else (never as repository
+   secrets):
 
-- a ruleset on `main`: pull request required, the required checks (including `credential-jobs`), no force
-  push, no deletion, an empty bypass list (administrators included). The KMS provider trusts `main`, so
-  `main` must be protected;
-- Actions settings: the default workflow token read-only, "Allow GitHub Actions to create and approve pull
-  requests" off, approval for workflow runs from outside contributors.
+   | Secret | What |
+   |---|---|
+   | `R2_ACCESS_KEY_ID` | a new R2 token, Object Read & Write on the bucket `nyra-images` only |
+   | `R2_SECRET_ACCESS_KEY` | the same token's secret |
+   | `CLOUDFLARE_KV_TOKEN` | a new token, Workers KV Storage Edit on the account, nothing else |
+
+6. **`DESKTOP_RELEASE`** = `on`: release signing with the KMS (nothing is published yet).
+7. **`PUBLISH_ENABLED`** = `on`, last: only after `UPDATES_PIN` is set in `image.yml`, the base pins trust the
+   desktop's signer, and steps 1 to 5 exist.
+
+Each publish run then waits for the owner's approval of the environment `publish`. To stop publishing, unset
+`PUBLISH_ENABLED`; to stop all release signing, unset `DESKTOP_RELEASE`.
 
 ## What is not here yet
 
-The keyless signature of the image for the registry, the `publish` environment and the publishing jobs
-are the next step. Nothing of this repository is published by the release jobs, x86_64 or arm64.
+The installer and an ISO of the desktop: a machine gets the desktop by switching from the base (as root,
+from the recovery console), not by installing it.

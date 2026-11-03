@@ -5,8 +5,11 @@
 # Release mode (docs/RELEASE.md), off unless the repository variable DESKTOP_RELEASE is `on`, on a push or
 # manual run on main: the UKI is made with the pinned base's committed PCR policy key and left unsigned,
 # the release-sign job has the Nyra keys in the Cloud KMS sign its PCR policy and the UKI (the pinned
-# base's tools only), release-image builds the image with that UKI, and the boot test boots it. Nothing
-# is published and no image is signed for the registry yet.
+# base's tools only), release-image builds the image with that UKI, and the boot test boots it.
+# Publishing (docs/RELEASE.md), in release mode and only with the repository variable PUBLISH_ENABLED `on`
+# too: sign signs the booted image keyless (environment `sign`), verify-signature checks it with the
+# image's own policy, publish puts the signature and the image on updates.nyraos.com (environment
+# `publish`, no id-token), and verify-published pulls it back as a machine does.
 # The jobs ending in -arm64 do the same for aarch64 (docs/IMAGE.md, "arm64"): natively on GitHub's arm64
 # runners, from the pinned arm64 base (base/pin-arm64), and booted emulated (they have no KVM), to the login
 # screen and a Plasma session. They are part of this file, with the same permissions as the x86_64 jobs;
@@ -544,6 +547,401 @@ jobs:
           path: ${{ runner.temp }}/vm/
           if-no-files-found: ignore
 
+  # The image signature and publishing (docs/RELEASE.md, "The image signature" and "Publishing"): only in
+  # release mode, only with the repository variable PUBLISH_ENABLED `on` as well, and only after the release
+  # image booted. sign is the one job in the environment `sign`, whose provider in Google Cloud alone can
+  # reach nyra-desktop-image-signer (a keyless Fulcio identity, no other role). It reads the image (podman
+  # load, create, cp; skopeo copies it) and runs none of its code. Before signing: the image follows
+  # nyra-desktop with this run's version and a floor not above it, the policy it ships trusts this signer
+  # for its own repository (the pinned base's policy, unchanged), and the pinned base's UKI release gate.
+  # A GCP_* variable that is not set fails the job (red, not skipped).
+  sign:
+    needs: [build, release-image, boot]
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build.outputs.release == 'true'
+      && vars.PUBLISH_ENABLED == 'on' && needs.release-image.result == 'success' && needs.boot.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: sign
+    permissions:
+      contents: read
+      id-token: write
+    # What publish publishes, checked there against the artifacts (never read from them).
+    outputs:
+      image_digest: ${{ steps.export.outputs.image_digest }}
+      signature_digest: ${{ steps.export.outputs.signature_digest }}
+    env:
+      # nyra-base's cosign, by version and hash.
+      COSIGN_VERSION: v3.1.3
+      COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+      REPOSITORY: nyra-desktop
+      REPO: updates.nyraos.com/nyra-desktop
+    steps:
+      - name: The signing variables are set
+        env:
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_SIGNER_SA: ${{ vars.GCP_SIGNER_SA }}
+        run: |
+          if [ -z "$GCP_WIF_PROVIDER" ] || [ -z "$GCP_SIGNER_SA" ]; then
+            echo "::error::GCP_WIF_PROVIDER or GCP_SIGNER_SA is not set: this release cannot be signed (docs/RELEASE.md)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      # As in release-sign: the base's tools and policy run next to the credential, so the pin must be on its main.
+      - name: The pinned base commit is on nyra-base's main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ needs.build.outputs.base_commit }}
+        run: |
+          [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no pinned base commit"; exit 1; }
+          status="$(gh api "repos/NyraOS/nyra-base/compare/$PIN...main" --jq .status)"
+          case "$status" in
+            ahead|identical) echo "nyra-base $PIN is on main ($status)" ;;
+            *) echo "::error::the pinned base commit $PIN is not on nyra-base's main (compare: $status)"; exit 1 ;;
+          esac
+
+      - name: Stop the runner's automatic image prune, the pinned test registry (nyra-base's ci/pinned-images.sh)
+        run: |
+          sudo systemctl stop podman-auto-update.timer podman-auto-update.service
+          sudo mkdir -p "$WORK" && sudo chown "$(id -u):$(id -g)" "$WORK"
+          (cd .nyra-base && ci/pinned-images.sh "$RUNNER_TEMP/pinned-images" registry)
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-release-oci-archive
+          path: ${{ runner.temp }}/image
+
+      # The archive is the one release-image made and boot booted. The runner's skopeo copies it.
+      - name: Load the image and push it to a throwaway registry (as updates.nyraos.com)
+        env:
+          IMAGE_SHA256: ${{ needs.release-image.outputs.image_sha256 }}
+        run: |
+          .nyra-base/ci/check-artifact.sh "$RUNNER_TEMP/image/nyra-desktop.oci.tar" "$IMAGE_SHA256"
+          .nyra-base/tools/signing/local-registry.sh "$WORK"
+          sudo podman load -q -i "$RUNNER_TEMP/image/nyra-desktop.oci.tar"
+          sudo podman image exists localhost/nyra-desktop:ci
+          skopeo copy --dest-tls-verify=false --preserve-digests --digestfile "$WORK/digest" \
+            "oci-archive:$RUNNER_TEMP/image/nyra-desktop.oci.tar" "docker://$REPO:ci"
+          digest="$(cat "$WORK/digest")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+          rm "$RUNNER_TEMP/image/nyra-desktop.oci.tar"
+
+      - name: The image follows nyra-desktop, with this run's version and its floor (ci/check-image-repository.sh)
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: ci/check-image-repository.sh localhost/nyra-desktop:ci "$REPOSITORY" "$VERSION"
+
+      - name: The image's policy trusts this signer for nyra-desktop (ci/check-signer-policy.sh)
+        env:
+          SIGNER: ${{ vars.GCP_SIGNER_SA }}
+        run: ci/check-signer-policy.sh localhost/nyra-desktop:ci .nyra-base "$REPOSITORY" "$SIGNER"
+
+      - name: UKI release gate (signed with the committed Nyra certificate)
+        run: |
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -q >/dev/null && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends sbsigntool python3-pefile >/dev/null
+          cid="$(sudo podman create -q localhost/nyra-desktop:ci)"
+          sudo podman cp "$cid:/boot" "$WORK/boot"
+          sudo podman cp "$cid:/usr/lib/nyra/secureboot/tpm2-pcr-public-key-next.pem" "$WORK/image-next.pem"
+          sudo podman cp "$cid:/usr/lib/nyra/secureboot/tpm2-pcr-retired-keys" "$WORK/image-retired"
+          sudo podman rm -f "$cid" >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" "$WORK/boot" "$WORK/image-next.pem" "$WORK/image-retired"
+          s=.nyra-base/files/usr/lib/nyra/secureboot
+          .nyra-base/tools/signing/uki-gate.sh "$WORK/boot" "$s/nyra.crt" "$s/tpm2-pcr-public-key.pem" \
+            "$s/tpm2-pcr-public-key-next.pem" "$WORK/image-next.pem" "$s/tpm2-pcr-retired-keys" "$WORK/image-retired"
+
+      - name: Install cosign
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/cosign" \
+            "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+          echo "$COSIGN_SHA256  $RUNNER_TEMP/cosign" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/cosign" /usr/local/bin/cosign
+          cosign version
+
+      - id: google
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SIGNER_SA }}
+          token_format: id_token
+          id_token_audience: sigstore
+          id_token_include_email: true
+          create_credentials_file: false
+          export_environment_variables: false
+
+      # The old signature format, the only one containers/image verifies (as nyra-base).
+      - name: Sign the image
+        env:
+          ID_TOKEN: ${{ steps.google.outputs.id_token }}
+        run: |
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            --fulcio-url https://fulcio.sigstore.dev --rekor-url https://rekor.sigstore.dev \
+            --identity-token "$ID_TOKEN" --allow-http-registry "$REPO@$IMAGE_DIGEST"
+
+      # The signature as an OCI layout, tagged as on the registry. verify-signature checks it with the
+      # image's own policy, not this job.
+      - name: Export the signature
+        id: export
+        env:
+          SIGNER: ${{ vars.GCP_SIGNER_SA }}
+        run: |
+          sig="${IMAGE_DIGEST/:/-}.sig"
+          mkdir -p dist
+          skopeo copy --insecure-policy --src-tls-verify=false --preserve-digests \
+            "docker://$REPO:$sig" "oci:dist/signature:$sig"
+          signature_digest="$(jq -er --arg ref "$sig" '
+            .manifests | select(length == 1) | .[0]
+            | select(.annotations["org.opencontainers.image.ref.name"] == $ref) | .digest' dist/signature/index.json)"
+          [[ "$signature_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [ "$(sha256sum < "dist/signature/blobs/sha256/${signature_digest#sha256:}" | cut -d' ' -f1)" = "${signature_digest#sha256:}" ]
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "signature_digest=$signature_digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Signed (x86_64)"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`$REPO@$IMAGE_DIGEST\` |"
+            echo "| Signer | \`$SIGNER\` (keyless, Fulcio + Rekor) |"
+            echo "| Signature | \`$REPO:$sig\` (artifact nyra-desktop-signature) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the signature
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nyra-desktop-signature
+          path: dist
+          retention-days: 14
+
+  # The signature checked with the policy the image ships, by the image's own skopeo (ci/test-signature.sh):
+  # accepted under nyra-desktop, refused on another image, under nyra-desktop-arm64 and under the base's
+  # repositories. No token, no environment. publish waits for it.
+  verify-signature:
+    needs: [build, release-image, sign]
+    if: ${{ !cancelled() && needs.sign.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      REPO: updates.nyraos.com/nyra-desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      - name: Stop the runner's automatic image prune, the pinned test registry (nyra-base's ci/pinned-images.sh)
+        run: |
+          sudo systemctl stop podman-auto-update.timer podman-auto-update.service
+          sudo mkdir -p "$WORK" && sudo chown "$(id -u):$(id -g)" "$WORK"
+          (cd .nyra-base && ci/pinned-images.sh "$RUNNER_TEMP/pinned-images" registry)
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-release-oci-archive
+          path: ${{ runner.temp }}/image
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-signature
+          path: ${{ runner.temp }}/signature
+
+      - name: Put the image and its signature into a throwaway registry (as updates.nyraos.com)
+        env:
+          IMAGE_SHA256: ${{ needs.release-image.outputs.image_sha256 }}
+          IMAGE_DIGEST: ${{ needs.sign.outputs.image_digest }}
+          SIGNATURE_DIGEST: ${{ needs.sign.outputs.signature_digest }}
+        run: |
+          ci/check-publish.sh --signature "$RUNNER_TEMP/signature/signature" "$IMAGE_DIGEST" "$SIGNATURE_DIGEST"
+          .nyra-base/ci/check-artifact.sh "$RUNNER_TEMP/image/nyra-desktop.oci.tar" "$IMAGE_SHA256"
+          .nyra-base/tools/signing/local-registry.sh "$WORK"
+          sudo podman load -q -i "$RUNNER_TEMP/image/nyra-desktop.oci.tar"
+          sudo podman image exists localhost/nyra-desktop:ci
+          skopeo copy --dest-tls-verify=false --preserve-digests --digestfile "$WORK/digest" \
+            "oci-archive:$RUNNER_TEMP/image/nyra-desktop.oci.tar" "docker://$REPO:ci"
+          [ "$(cat "$WORK/digest")" = "$IMAGE_DIGEST" ] || { echo "::error::the image is not the manifest $IMAGE_DIGEST that sign signed"; exit 1; }
+          sig="${IMAGE_DIGEST/:/-}.sig"
+          skopeo copy --insecure-policy --dest-tls-verify=false --preserve-digests \
+            "oci:$RUNNER_TEMP/signature/signature:$sig" "docker://$REPO:$sig"
+
+      - name: Verify with the image's own policy (ci/test-signature.sh)
+        env:
+          IMAGE_DIGEST: ${{ needs.sign.outputs.image_digest }}
+        run: ci/test-signature.sh localhost/nyra-desktop:ci "$WORK" "$IMAGE_DIGEST" nyra-desktop
+
+  # Publishing to updates.nyraos.com (docs/RELEASE.md, "Publishing"): the image and its signature, nothing
+  # else (the channel sheets are a reviewed pull request in nyra-updates). The one job in the environment
+  # `publish` (main only, the owner approves each run), which holds the R2 and KV tokens. Exactly
+  # `contents: read`: no id-token, so it can never sign. No code of the image runs: the archive is
+  # unpacked by tar and read by jq and sha256sum, and every digest, tag and version comes from a job output.
+  # The script that uploads is nyra-updates' publish-image.sh at UPDATES_PIN, which must be on its main.
+  publish:
+    needs: [build, release-image, sign, verify-signature]
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build.outputs.release == 'true'
+      && vars.PUBLISH_ENABLED == 'on' && needs.sign.result == 'success' && needs.verify-signature.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: publish
+    permissions:
+      contents: read
+    concurrency:
+      group: publish-nyra-desktop
+      cancel-in-progress: false
+    env:
+      REPOSITORY: nyra-desktop
+      # The nyra-updates commit whose registry/scripts/publish-image.sh runs next to the tokens. NOT SET YET:
+      # it must be the merge commit of the nyra-updates pull request that adds nyra-desktop and
+      # nyra-desktop-arm64 to the repository allow-list (until then the script refuses these names, and an
+      # empty pin fails this job before anything is read). It moves only by a reviewed pull request that
+      # reads the nyra-updates diff from the old pin to the new one.
+      UPDATES_PIN: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # nyra-updates is public: no token. Plain git into its own directory; the pin is fetched as part of
+      # main's history (GitHub serves a commit by its SHA from any fork, so a pin not on main is refused).
+      - name: Fetch nyra-updates at the pinned commit, which must be on its main
+        run: |
+          [[ "$UPDATES_PIN" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::UPDATES_PIN is not a 40-hex commit: set it to the nyra-updates commit that allows the desktop repositories (docs/RELEASE.md)"; exit 1; }
+          updates="$RUNNER_TEMP/updates"
+          git init -q "$updates"
+          git -C "$updates" remote add origin https://github.com/NyraOS/nyra-updates.git
+          git -C "$updates" fetch --no-tags origin main
+          git -C "$updates" merge-base --is-ancestor "$UPDATES_PIN" FETCH_HEAD || {
+            echo "::error::$UPDATES_PIN is not on the main branch of NyraOS/nyra-updates"; exit 1; }
+          # The released versions as nyra-updates' main has them now (data, read by jq only).
+          # ci/check-publish.sh requires this run's version to be newer than all of them. None before the first.
+          if git -C "$updates" cat-file -e "FETCH_HEAD:channels/$REPOSITORY/releases.json" 2>/dev/null; then
+            git -C "$updates" show "FETCH_HEAD:channels/$REPOSITORY/releases.json" > "$RUNNER_TEMP/releases.json"
+          else
+            echo '{}' > "$RUNNER_TEMP/releases.json"
+          fi
+          git -C "$updates" -c advice.detachedHead=false checkout -q "$UPDATES_PIN"
+          [ "$(git -C "$updates" rev-parse HEAD)" = "$UPDATES_PIN" ]
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-release-oci-archive
+          path: ${{ runner.temp }}/image-download
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-signature
+          path: ${{ runner.temp }}/signature-download
+
+      - name: Check the image, the signature and the version (ci/check-publish.sh)
+        env:
+          IMAGE_SHA256: ${{ needs.release-image.outputs.image_sha256 }}
+          IMAGE_DIGEST: ${{ needs.sign.outputs.image_digest }}
+          SIGNATURE_DIGEST: ${{ needs.sign.outputs.signature_digest }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          ci/check-publish.sh "$RUNNER_TEMP/image-download/nyra-desktop.oci.tar" "$IMAGE_SHA256" \
+            "$RUNNER_TEMP/signature-download/signature" "$IMAGE_DIGEST" "$SIGNATURE_DIGEST" \
+            "$VERSION" "$GITHUB_SHA" linux/amd64 "$RUNNER_TEMP/releases.json" "$RUNNER_TEMP/image-layout"
+
+      # The one step with the secrets: the signature first (the script refuses a version whose signature tag
+      # is not published), then the version. A released version is never re-pointed by the script.
+      - name: Publish the signature, then the image
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_KV_TOKEN: ${{ secrets.CLOUDFLARE_KV_TOKEN }}
+          IMAGE_DIGEST: ${{ needs.sign.outputs.image_digest }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          publish="$RUNNER_TEMP/updates/registry/scripts/publish-image.sh"
+          bash "$publish" --remote "$RUNNER_TEMP/signature-download/signature" "$REPOSITORY" "${IMAGE_DIGEST/:/-}.sig"
+          bash "$publish" --remote "$RUNNER_TEMP/image-layout" "$REPOSITORY" "$VERSION"
+
+      - name: Summary
+        env:
+          IMAGE_DIGEST: ${{ needs.sign.outputs.image_digest }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          {
+            echo "## Published (x86_64)"
+            echo
+            echo "\`updates.nyraos.com/$REPOSITORY:$VERSION\` -> \`$IMAGE_DIGEST\`; verify-published reads it back."
+            echo
+            echo "Add to \`channels/$REPOSITORY/releases.json\` in nyra-updates (a reviewed pull request):"
+            echo
+            echo '```'
+            echo "\"$VERSION\": \"$IMAGE_DIGEST\""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The pull a machine makes (ci/verify-published.sh, with the pinned base's policy), with no secret and no
+  # environment. Red here is an incident to look into, not a reason to publish again.
+  verify-published:
+    needs: [build, sign, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      - name: Pull the version with the shipped policy (ci/verify-published.sh)
+        env:
+          IMAGE_DIGEST: ${{ needs.sign.outputs.image_digest }}
+          VERSION: ${{ needs.build.outputs.version }}
+          # Debian 13's skopeo (the runner's has no Fulcio support), as nyra-base's verify-published.
+          DEBIAN_IMAGE: mirror.gcr.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+          REPOSITORY: nyra-desktop
+        run: |
+          mkdir -p "$RUNNER_TEMP/storage"
+          for attempt in $(seq 1 12); do
+            rc=0
+            sudo podman run --rm --privileged -v "$PWD:/src:ro" -v "$RUNNER_TEMP/storage:/storage" "$DEBIAN_IMAGE" bash -c '
+                set -euo pipefail
+                apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -qq
+                DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -qq --no-install-recommends \
+                  skopeo podman jq ca-certificates >/dev/null
+                /src/ci/verify-published.sh /src/.nyra-base "$@" /storage
+              ' verify "$REPOSITORY" "$VERSION" "$IMAGE_DIGEST" "$GITHUB_SHA" || rc=$?
+            [ "$rc" != 0 ] || exit 0
+            # 2: pulled, but the digest, a label or the architecture is wrong; retrying cannot fix that.
+            [ "$rc" != 2 ] || { echo "::error::updates.nyraos.com/$REPOSITORY:$VERSION is not the release"; exit 1; }
+            echo "attempt $attempt failed"
+            sleep 10
+          done
+          echo "::error::updates.nyraos.com/$REPOSITORY:$VERSION was not accepted within about 2 minutes"
+          exit 1
+
+      - name: Remove the pulled image
+        if: always()
+        run: sudo rm -rf "$RUNNER_TEMP/storage"
+
   # The arm64 image (docs/IMAGE.md, "arm64"): the same steps as `build`, on an arm64 runner, from the arm64
   # base that base/pin-arm64 names (nyra-base-arm64) and the arm64 package list of the same release. No
   # SBOM or vulnerability scan: nyra-base's scanner reads the amd64 package index only. The work
@@ -1049,3 +1447,375 @@ jobs:
           name: desktop-boot-arm64
           path: ${{ runner.temp }}/vm/
           if-no-files-found: ignore
+
+  # The arm64 twins of sign, verify-signature, publish and verify-published (docs/RELEASE.md, "arm64"), for
+  # the repository nyra-desktop-arm64, by the same rules and switches (release mode and PUBLISH_ENABLED), the
+  # same signer and environments, after the arm64 release image booted. sign-arm64 runs on x86_64 (nyra-base's
+  # cosign); it only reads the arm64 image. Nothing of the x86_64 jobs needs these, nor the reverse.
+  sign-arm64:
+    needs: [build-arm64, release-image-arm64, boot-arm64]
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build-arm64.outputs.release == 'true'
+      && vars.PUBLISH_ENABLED == 'on' && needs.release-image-arm64.result == 'success' && needs.boot-arm64.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: sign
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_digest: ${{ steps.export.outputs.image_digest }}
+      signature_digest: ${{ steps.export.outputs.signature_digest }}
+    env:
+      COSIGN_VERSION: v3.1.3
+      COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+      REPOSITORY: nyra-desktop-arm64
+      REPO: updates.nyraos.com/nyra-desktop-arm64
+    steps:
+      - name: The signing variables are set
+        env:
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_SIGNER_SA: ${{ vars.GCP_SIGNER_SA }}
+        run: |
+          if [ -z "$GCP_WIF_PROVIDER" ] || [ -z "$GCP_SIGNER_SA" ]; then
+            echo "::error::GCP_WIF_PROVIDER or GCP_SIGNER_SA is not set: this release cannot be signed (docs/RELEASE.md)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build-arm64.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      - name: The pinned base commit is on nyra-base's main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ needs.build-arm64.outputs.base_commit }}
+        run: |
+          [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no pinned base commit"; exit 1; }
+          status="$(gh api "repos/NyraOS/nyra-base/compare/$PIN...main" --jq .status)"
+          case "$status" in
+            ahead|identical) echo "nyra-base $PIN is on main ($status)" ;;
+            *) echo "::error::the pinned base commit $PIN is not on nyra-base's main (compare: $status)"; exit 1 ;;
+          esac
+
+      - name: Stop the runner's automatic image prune, the pinned test registry (nyra-base's ci/pinned-images.sh)
+        run: |
+          sudo systemctl stop podman-auto-update.timer podman-auto-update.service
+          sudo mkdir -p "$WORK" && sudo chown "$(id -u):$(id -g)" "$WORK"
+          (cd .nyra-base && ci/pinned-images.sh "$RUNNER_TEMP/pinned-images" registry)
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-release-oci-archive
+          path: ${{ runner.temp }}/image
+
+      - name: Load the image and push it to a throwaway registry (as updates.nyraos.com)
+        env:
+          IMAGE_SHA256: ${{ needs.release-image-arm64.outputs.image_sha256 }}
+        run: |
+          .nyra-base/ci/check-artifact.sh "$RUNNER_TEMP/image/nyra-desktop.oci.tar" "$IMAGE_SHA256"
+          .nyra-base/tools/signing/local-registry.sh "$WORK"
+          sudo podman load -q -i "$RUNNER_TEMP/image/nyra-desktop.oci.tar"
+          sudo podman image exists localhost/nyra-desktop:ci
+          skopeo copy --dest-tls-verify=false --preserve-digests --digestfile "$WORK/digest" \
+            "oci-archive:$RUNNER_TEMP/image/nyra-desktop.oci.tar" "docker://$REPO:ci"
+          digest="$(cat "$WORK/digest")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+          rm "$RUNNER_TEMP/image/nyra-desktop.oci.tar"
+
+      - name: The image is arm64 and follows nyra-desktop-arm64, with this run's version and its floor (ci/check-image-repository.sh)
+        env:
+          VERSION: ${{ needs.build-arm64.outputs.version }}
+        run: ci/check-image-repository.sh localhost/nyra-desktop:ci "$REPOSITORY" "$VERSION"
+
+      - name: The image's policy trusts this signer for nyra-desktop-arm64 (ci/check-signer-policy.sh)
+        env:
+          SIGNER: ${{ vars.GCP_SIGNER_SA }}
+        run: ci/check-signer-policy.sh localhost/nyra-desktop:ci .nyra-base "$REPOSITORY" "$SIGNER"
+
+      - name: UKI release gate (signed with the committed Nyra certificate)
+        run: |
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -q >/dev/null && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends sbsigntool python3-pefile >/dev/null
+          cid="$(sudo podman create -q --platform linux/arm64 localhost/nyra-desktop:ci)"
+          sudo podman cp "$cid:/boot" "$WORK/boot"
+          sudo podman cp "$cid:/usr/lib/nyra/secureboot/tpm2-pcr-public-key-next.pem" "$WORK/image-next.pem"
+          sudo podman cp "$cid:/usr/lib/nyra/secureboot/tpm2-pcr-retired-keys" "$WORK/image-retired"
+          sudo podman rm -f "$cid" >/dev/null
+          sudo chown -R "$(id -u):$(id -g)" "$WORK/boot" "$WORK/image-next.pem" "$WORK/image-retired"
+          s=.nyra-base/files/usr/lib/nyra/secureboot
+          .nyra-base/tools/signing/uki-gate.sh "$WORK/boot" "$s/nyra.crt" "$s/tpm2-pcr-public-key.pem" \
+            "$s/tpm2-pcr-public-key-next.pem" "$WORK/image-next.pem" "$s/tpm2-pcr-retired-keys" "$WORK/image-retired"
+
+      - name: Install cosign
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/cosign" \
+            "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+          echo "$COSIGN_SHA256  $RUNNER_TEMP/cosign" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/cosign" /usr/local/bin/cosign
+          cosign version
+
+      - id: google
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SIGNER_SA }}
+          token_format: id_token
+          id_token_audience: sigstore
+          id_token_include_email: true
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Sign the image
+        env:
+          ID_TOKEN: ${{ steps.google.outputs.id_token }}
+        run: |
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            --fulcio-url https://fulcio.sigstore.dev --rekor-url https://rekor.sigstore.dev \
+            --identity-token "$ID_TOKEN" --allow-http-registry "$REPO@$IMAGE_DIGEST"
+
+      - name: Export the signature
+        id: export
+        env:
+          SIGNER: ${{ vars.GCP_SIGNER_SA }}
+        run: |
+          sig="${IMAGE_DIGEST/:/-}.sig"
+          mkdir -p dist
+          skopeo copy --insecure-policy --src-tls-verify=false --preserve-digests \
+            "docker://$REPO:$sig" "oci:dist/signature:$sig"
+          signature_digest="$(jq -er --arg ref "$sig" '
+            .manifests | select(length == 1) | .[0]
+            | select(.annotations["org.opencontainers.image.ref.name"] == $ref) | .digest' dist/signature/index.json)"
+          [[ "$signature_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [ "$(sha256sum < "dist/signature/blobs/sha256/${signature_digest#sha256:}" | cut -d' ' -f1)" = "${signature_digest#sha256:}" ]
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "signature_digest=$signature_digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Signed (aarch64)"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`$REPO@$IMAGE_DIGEST\` |"
+            echo "| Signer | \`$SIGNER\` (keyless, Fulcio + Rekor) |"
+            echo "| Signature | \`$REPO:$sig\` (artifact nyra-desktop-arm64-signature) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the signature
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nyra-desktop-arm64-signature
+          path: dist
+          retention-days: 14
+
+  # On an arm64 runner, so that the image's own skopeo runs natively (ci/test-signature.sh).
+  verify-signature-arm64:
+    needs: [build-arm64, release-image-arm64, sign-arm64]
+    if: ${{ !cancelled() && needs.sign-arm64.result == 'success' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      REPO: updates.nyraos.com/nyra-desktop-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build-arm64.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      - name: Podman, no automatic image prune, the work directory, the pinned test registry
+        timeout-minutes: 30
+        run: |
+          command -v podman >/dev/null || { sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -q && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends podman; }
+          command -v skopeo >/dev/null || sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends skopeo
+          if systemctl list-unit-files podman-auto-update.timer >/dev/null 2>&1; then
+            sudo systemctl stop podman-auto-update.timer podman-auto-update.service
+          fi
+          if mountpoint -q /mnt; then work=/mnt/work; else work="$HOME/work"; fi
+          sudo mkdir -p "$work" && sudo chown "$(id -u):$(id -g)" "$work"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          (cd .nyra-base && ci/pinned-images.sh "$RUNNER_TEMP/pinned-images" registry)
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-release-oci-archive
+          path: ${{ runner.temp }}/image
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-signature
+          path: ${{ runner.temp }}/signature
+
+      - name: Put the image and its signature into a throwaway registry (as updates.nyraos.com)
+        env:
+          IMAGE_SHA256: ${{ needs.release-image-arm64.outputs.image_sha256 }}
+          IMAGE_DIGEST: ${{ needs.sign-arm64.outputs.image_digest }}
+          SIGNATURE_DIGEST: ${{ needs.sign-arm64.outputs.signature_digest }}
+        run: |
+          ci/check-publish.sh --signature "$RUNNER_TEMP/signature/signature" "$IMAGE_DIGEST" "$SIGNATURE_DIGEST"
+          .nyra-base/ci/check-artifact.sh "$RUNNER_TEMP/image/nyra-desktop.oci.tar" "$IMAGE_SHA256"
+          .nyra-base/tools/signing/local-registry.sh "$WORK"
+          sudo podman load -q -i "$RUNNER_TEMP/image/nyra-desktop.oci.tar"
+          test "$(sudo podman image inspect -f '{{.Os}}/{{.Architecture}}' localhost/nyra-desktop:ci)" = linux/arm64
+          skopeo copy --dest-tls-verify=false --preserve-digests --digestfile "$WORK/digest" \
+            "oci-archive:$RUNNER_TEMP/image/nyra-desktop.oci.tar" "docker://$REPO:ci"
+          [ "$(cat "$WORK/digest")" = "$IMAGE_DIGEST" ] || { echo "::error::the image is not the manifest $IMAGE_DIGEST that sign-arm64 signed"; exit 1; }
+          sig="${IMAGE_DIGEST/:/-}.sig"
+          skopeo copy --insecure-policy --dest-tls-verify=false --preserve-digests \
+            "oci:$RUNNER_TEMP/signature/signature:$sig" "docker://$REPO:$sig"
+
+      - name: Verify with the image's own policy (ci/test-signature.sh)
+        env:
+          IMAGE_DIGEST: ${{ needs.sign-arm64.outputs.image_digest }}
+        run: ci/test-signature.sh localhost/nyra-desktop:ci "$WORK" "$IMAGE_DIGEST" nyra-desktop-arm64
+
+  # publish for nyra-desktop-arm64: the same job, the same environment and pin, its own concurrency group.
+  publish-arm64:
+    needs: [build-arm64, release-image-arm64, sign-arm64, verify-signature-arm64]
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build-arm64.outputs.release == 'true'
+      && vars.PUBLISH_ENABLED == 'on' && needs.sign-arm64.result == 'success' && needs.verify-signature-arm64.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: publish
+    permissions:
+      contents: read
+    concurrency:
+      group: publish-nyra-desktop-arm64
+      cancel-in-progress: false
+    env:
+      REPOSITORY: nyra-desktop-arm64
+      # As publish's UPDATES_PIN (NOT SET YET); the two always move together.
+      UPDATES_PIN: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch nyra-updates at the pinned commit, which must be on its main
+        run: |
+          [[ "$UPDATES_PIN" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::UPDATES_PIN is not a 40-hex commit: set it to the nyra-updates commit that allows the desktop repositories (docs/RELEASE.md)"; exit 1; }
+          updates="$RUNNER_TEMP/updates"
+          git init -q "$updates"
+          git -C "$updates" remote add origin https://github.com/NyraOS/nyra-updates.git
+          git -C "$updates" fetch --no-tags origin main
+          git -C "$updates" merge-base --is-ancestor "$UPDATES_PIN" FETCH_HEAD || {
+            echo "::error::$UPDATES_PIN is not on the main branch of NyraOS/nyra-updates"; exit 1; }
+          if git -C "$updates" cat-file -e "FETCH_HEAD:channels/$REPOSITORY/releases.json" 2>/dev/null; then
+            git -C "$updates" show "FETCH_HEAD:channels/$REPOSITORY/releases.json" > "$RUNNER_TEMP/releases.json"
+          else
+            echo '{}' > "$RUNNER_TEMP/releases.json"
+          fi
+          git -C "$updates" -c advice.detachedHead=false checkout -q "$UPDATES_PIN"
+          [ "$(git -C "$updates" rev-parse HEAD)" = "$UPDATES_PIN" ]
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-release-oci-archive
+          path: ${{ runner.temp }}/image-download
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nyra-desktop-arm64-signature
+          path: ${{ runner.temp }}/signature-download
+
+      - name: Check the image, the signature and the version (ci/check-publish.sh)
+        env:
+          IMAGE_SHA256: ${{ needs.release-image-arm64.outputs.image_sha256 }}
+          IMAGE_DIGEST: ${{ needs.sign-arm64.outputs.image_digest }}
+          SIGNATURE_DIGEST: ${{ needs.sign-arm64.outputs.signature_digest }}
+          VERSION: ${{ needs.build-arm64.outputs.version }}
+        run: |
+          ci/check-publish.sh "$RUNNER_TEMP/image-download/nyra-desktop.oci.tar" "$IMAGE_SHA256" \
+            "$RUNNER_TEMP/signature-download/signature" "$IMAGE_DIGEST" "$SIGNATURE_DIGEST" \
+            "$VERSION" "$GITHUB_SHA" linux/arm64 "$RUNNER_TEMP/releases.json" "$RUNNER_TEMP/image-layout"
+
+      - name: Publish the signature, then the image
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_KV_TOKEN: ${{ secrets.CLOUDFLARE_KV_TOKEN }}
+          IMAGE_DIGEST: ${{ needs.sign-arm64.outputs.image_digest }}
+          VERSION: ${{ needs.build-arm64.outputs.version }}
+        run: |
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          publish="$RUNNER_TEMP/updates/registry/scripts/publish-image.sh"
+          bash "$publish" --remote "$RUNNER_TEMP/signature-download/signature" "$REPOSITORY" "${IMAGE_DIGEST/:/-}.sig"
+          bash "$publish" --remote "$RUNNER_TEMP/image-layout" "$REPOSITORY" "$VERSION"
+
+      - name: Summary
+        env:
+          IMAGE_DIGEST: ${{ needs.sign-arm64.outputs.image_digest }}
+          VERSION: ${{ needs.build-arm64.outputs.version }}
+        run: |
+          {
+            echo "## Published (aarch64)"
+            echo
+            echo "\`updates.nyraos.com/$REPOSITORY:$VERSION\` -> \`$IMAGE_DIGEST\`; verify-published-arm64 reads it back."
+            echo
+            echo "Add to \`channels/$REPOSITORY/releases.json\` in nyra-updates (a reviewed pull request):"
+            echo
+            echo '```'
+            echo "\"$VERSION\": \"$IMAGE_DIGEST\""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # verify-published for nyra-desktop-arm64, natively on arm64 (the Debian index digest serves linux/arm64 too).
+  verify-published-arm64:
+    needs: [build-arm64, sign-arm64, publish-arm64]
+    if: ${{ !cancelled() && needs.publish-arm64.result == 'success' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NyraOS/nyra-base
+          ref: ${{ needs.build-arm64.outputs.base_commit }}
+          path: .nyra-base
+          persist-credentials: false
+
+      - name: Pull the version with the shipped policy (ci/verify-published.sh)
+        env:
+          IMAGE_DIGEST: ${{ needs.sign-arm64.outputs.image_digest }}
+          VERSION: ${{ needs.build-arm64.outputs.version }}
+          DEBIAN_IMAGE: mirror.gcr.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+          REPOSITORY: nyra-desktop-arm64
+        run: |
+          command -v podman >/dev/null || { sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -q && sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -q --no-install-recommends podman; }
+          mkdir -p "$RUNNER_TEMP/storage"
+          for attempt in $(seq 1 12); do
+            rc=0
+            sudo podman run --rm --privileged -v "$PWD:/src:ro" -v "$RUNNER_TEMP/storage:/storage" "$DEBIAN_IMAGE" bash -c '
+                set -euo pipefail
+                apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update -qq
+                DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y -qq --no-install-recommends \
+                  skopeo podman jq ca-certificates >/dev/null
+                /src/ci/verify-published.sh /src/.nyra-base "$@" /storage
+              ' verify "$REPOSITORY" "$VERSION" "$IMAGE_DIGEST" "$GITHUB_SHA" || rc=$?
+            [ "$rc" != 0 ] || exit 0
+            [ "$rc" != 2 ] || { echo "::error::updates.nyraos.com/$REPOSITORY:$VERSION is not the release"; exit 1; }
+            echo "attempt $attempt failed"
+            sleep 10
+          done
+          echo "::error::updates.nyraos.com/$REPOSITORY:$VERSION was not accepted within about 2 minutes"
+          exit 1
+
+      - name: Remove the pulled image
+        if: always()
+        run: sudo rm -rf "$RUNNER_TEMP/storage"
