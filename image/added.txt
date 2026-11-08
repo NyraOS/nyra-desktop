@@ -35,6 +35,11 @@
 /usr/share/dbus-1/system-services/org.kde.localegenhelper.service
 /usr/share/dbus-1/system.d/org.kde.localegenhelper.conf
 
+# Settings' language and keyboard pages (systemd-localed): the base's polkit administrator is root only,
+# so this lets a member of the group sudo approve org.freedesktop.locale1.set-locale and set-keyboard
+# with their own password, and no other action
+/usr/share/polkit-1/rules.d/48-nyra-desktop-locale.rules
+
 # SDDM and KDE's screen lock: the PAM stacks of the login screen, the autologin and the greeter, and
 # of the lock screen (password, fingerprint, smart card)
 /etc/pam.d/kde
