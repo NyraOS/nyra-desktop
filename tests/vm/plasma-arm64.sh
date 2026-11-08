@@ -82,8 +82,12 @@ greeter='pgrep -u sddm -f "^/usr/bin/sddm-greeter-qt6 " >/dev/null && pgrep -u s
 session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value)" = wayland ] && [ "$(loginctl show-session "$s" -p Active --value)" = yes ] && pgrep -u nyratest -x plasmashell >/dev/null'
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
-# The boot screen, photographed as SDDM starts (tests/vm/plasma.sh has the reason).
-boot_shot="Starting .*Simple Desktop Display Manager=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/boot-screen.png\",\"format\":\"png\"}}"
+# The boot screen is photographed by the first command, once the test console is up, and SDDM's start is
+# held until then (a drop-in passed as a credential, test only): the console prints nothing once plymouth
+# shows its screen, so no line says when to photograph, and the frame plymouth leaves behind is replaced
+# as soon as KWin of the login screen starts.
+hold_sddm=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
+boot_shot_cmd="echo NYRA-SHOT-''boot-screen && sleep 3 && touch /run/nyra-boot-shot"
 
 # The test user's screen is never locked by idling: a locked session shows the lock screen, not the desktop.
 nolock='[Daemon]\nAutolock=false\nLockOnResume=false\n'
@@ -117,11 +121,12 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
-  --qmp "$boot_shot" \
+  --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.sddm.service=$hold_sddm" \
   --qmp "$(wake login-a 16000 16000)" --qmp "$(wake login-b 20000 12000)" \
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
+  --command "$boot_shot_cmd" \
   --command 'uname -m; test "$(uname -m)" = aarch64' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
@@ -135,7 +140,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
 # The screenshots show UI: the greeter, then the desktop (the first of each series that does; the job fails
 # when none does, after both are checked so that a log shows both), and the boot screen shows.
 rc=0
-# The boot screen was on the screen when SDDM started (the theme's background, the logo and its moon).
+# The boot screen was on the screen when the console came up (the theme's background, the logo and its moon).
 python3 -I "$here/screen-splash.py" "$logs/boot-screen.png" || rc=1
 for s in login session; do
   files=(); for i in $(seq $((2*shots))); do files+=("$logs/$s-$i.png"); done

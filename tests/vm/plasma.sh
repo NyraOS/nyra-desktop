@@ -104,10 +104,12 @@ card=/run/media/nyratest/NYRASD
 # as raw yuv420p (the H.264 decoder is bit-exact, so it does not depend on the ffmpeg version).
 clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
-# The boot screen is photographed as SDDM starts: plymouth has quit by then (sddm.service starts after
-# plymouth-quit.service) and keeps its last frame on screen until KWin draws the greeter, which takes
-# longer than the console line takes to reach the host.
-boot_shot="Starting .*Simple Desktop Display Manager=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/boot-screen.png\",\"format\":\"png\"}}"
+# The boot screen is photographed by the first command, once the test console is up, and SDDM's start is
+# held until then (a drop-in passed as a credential, test only): the console prints nothing once plymouth
+# shows its screen, so no line says when to photograph, and the frame plymouth leaves behind is replaced
+# as soon as KWin of the login screen starts.
+hold_sddm=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
+boot_shot_cmd="echo NYRA-SHOT-''boot-screen && sleep 3 && touch /run/nyra-boot-shot"
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout 300 \
   --qemu=-device --qemu=virtio-vga --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
@@ -117,12 +119,13 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-audiodev --qemu=none,id=snd0 --qemu=-device --qemu=intel-hda --qemu=-device --qemu=hda-duplex,audiodev=snd0 \
   --smbios "io.systemd.stub.kernel-cmdline-extra=console=ttyS0" \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
-  --qmp "$boot_shot" \
+  --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.sddm.service=$hold_sddm" \
   --qmp "$(shot login-screen)" --qmp "$(shot plasma-session)" \
   --qmp "$(shot login-screen-ja)" --qmp "$(shot plasma-session-ja)" \
   --qmp "$(shot login-screen-ar)" --qmp "$(shot plasma-session-ar)" \
   --log "$logs/serial-plasma.log" --summary "$summary" \
   --title "Desktop: Secure Boot to the login screen, then a Plasma session" \
+  --command "$boot_shot_cmd" \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
   --command 's="$(systemctl is-system-running --wait)"; echo "system: $s"; systemctl --no-pager --failed; test "$s" = running' \
@@ -142,7 +145,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command "sh $card/language-session.sh ar_SA.UTF-8 ara ara ar" \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
 
-# The boot screen was on the screen when SDDM started (the theme's background, the logo and its moon).
+# The boot screen was on the screen when the console came up (the theme's background, the logo and its moon).
 python3 -I "$here/screen-splash.py" "$logs/boot-screen.png"
 
 # The page the guest printed reached the printer on the host: a file of the job, not empty.

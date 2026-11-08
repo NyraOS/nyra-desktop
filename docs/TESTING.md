@@ -129,7 +129,7 @@ tablet, 2 vCPUs and 2 GiB.
 | Secure Boot is on | `mokutil --sb-state`, and the sealed command line with the composefs digest |
 | The system is up | `systemctl is-system-running --wait` is `running`, no failed unit |
 | The login screen shows | `sddm.service` active, its greeter and KWin running as the user `sddm`; a screenshot, `login-screen.png` |
-| The boot screen shows | the test's add-on adds `splash plymouth.ignore-serial-consoles` to the command line (see "The boot screen" below); a screenshot, `boot-screen.png`, is taken as SDDM starts, and `tests/vm/screen-splash.py` fails the job unless the screen is the theme's dark background with the logo's white planet and the accent-coloured moon in the middle |
+| The boot screen shows | the test's add-on adds `splash plymouth.ignore-serial-consoles` to the command line (see "The boot screen" below); a screenshot, `boot-screen.png`, is taken by the first command (SDDM's start is held until then), and `tests/vm/screen-splash.py` fails the job unless the screen is the theme's dark background with the logo's white planet and the accent-coloured moon in the middle |
 | The boot stays lean | the login screen's first window comes within 240 s of the kernel start (the time and `systemd-analyze blame` are printed), fewer than 250 units are active, the user `sddm` runs no PipeWire or WirePlumber, and no NetworkManager, ModemManager, Bluetooth or Avahi unit is loaded (`docs/IMAGE.md`, "Boot time") |
 | A Plasma session starts | a test user (`nyratest`), logged in by SDDM's autologin, set for the test only in `/etc/sddm.conf.d`: a logind session of type `wayland`, active, with `plasmashell` and `kwin_wayland` |
 | It stays up | the same `plasmashell` process and KWin after 90 s; a screenshot, `plasma-session.png` (with llvmpipe the first panel takes about a minute) |
@@ -144,13 +144,15 @@ tablet, 2 vCPUs and 2 GiB.
 
 ### The boot screen
 
-The splash is photographed with QMP's `screendump` (as the login screen is), triggered by the console
-line `Starting ... Simple Desktop Display Manager`: `sddm.service` starts after `plymouth-quit.service`,
-and plymouth quits with `--retain-splash`, so the last frame of the boot screen is on the screen when
-SDDM starts, and stays until KWin draws the greeter (seconds later, and under emulation much later).
-A boot where plymouth showed text instead, crashed, or never started leaves a screen that has no logo,
-and `screen-splash.py` fails. The shares it checks are of the screen's shorter side, as the theme's are,
-so the VM's resolution does not matter.
+The splash is photographed with QMP's `screendump` (as the login screen is), triggered by the first
+command that runs on the test console. Once plymouth shows its screen the serial console prints nothing
+more, so no console line says when to photograph, and the last frame plymouth leaves behind is replaced as
+soon as KWin of the login screen starts. So the test holds SDDM's start with a drop-in passed as a
+credential (test only: `ExecStartPre` waits for a file), and the first command photographs the screen,
+then creates the file. What is photographed is plymouth's screen, animated or as plymouth left it
+(`plymouth quit --retain-splash`). A boot where plymouth showed text instead, crashed, or never started
+leaves a screen that has no logo, and `screen-splash.py` fails. The shares it checks are of the screen's
+shorter side, as the theme's are, so the VM's resolution does not matter.
 
 The command line of the desktop image has no `splash` (nyra-base's change), without which plymouth does
 not show its theme, and a serial console (which the test needs) makes plymouth fall back to its text theme.
