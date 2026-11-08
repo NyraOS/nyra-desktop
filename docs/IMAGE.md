@@ -139,6 +139,14 @@ Settings; `localectl` writes them to `/etc/locale.conf`, `/etc/vconsole.conf` an
 needs the network. Romanian is not special in the image: a default time zone of Europe/Bucharest for
 Romanian speakers only belongs to the installer's choice, not to a file here.
 
+Settings saves the language and the layout through systemd-localed, which asks polkit
+(`org.freedesktop.locale1.set-locale`, and `set-keyboard` for the console and X11 keymaps). The base makes
+root the only polkit administrator, and root has no password, so by itself nobody could approve them.
+`image/files/usr/share/polkit-1/rules.d/48-nyra-desktop-locale.rules` names the group sudo (the installer's
+first user) as the administrators of exactly these two actions: the user types their own password, as for
+any `auth_admin` action, and every other action stays root only. The VM test authenticates an administrator
+and a user who is none, and checks that the time zone action stays closed.
+
 What carries a language, measured on the pinned base's snapshot (installed size; download is the
 compressed `.deb`):
 

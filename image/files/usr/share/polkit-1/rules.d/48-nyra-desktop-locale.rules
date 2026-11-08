@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Who may change the system language and the keyboard layout from Settings (systemd-localed).
+//
+// nyra-base's 49-nyra.rules makes root the only polkit administrator, because root has no password and
+// so "administrator" would otherwise mean any member of the group sudo for every auth_admin action of
+// the image. The side effect is that Settings cannot save the language or the layout: polkit asks for
+// the password of root, which nobody has. This file lowers that for exactly these two actions
+// (set-locale, and set-keyboard which covers the console and the X11 keymap), and nothing else.
+//
+// - It names the group sudo, the group the installer puts the first user in. The action keeps its
+//   default of auth_admin_keep: the member types their OWN password, it is never a passwordless yes.
+// - Only the identities are changed. A rule that returns an array here is an answer for admin
+//   identities and nothing more, so what polkit's policy says about when to ask is untouched.
+// - What is written is a locale name or a keymap name that localed checks against its own lists, to
+//   files that only localed, the console setup and the session read: no program is started from it.
+// - The file name sorts before 49-nyra.rules, whose root-only rule answers for every other action
+//   (the first rule that answers wins). A rule for another action must not be added here.
+polkit.addAdminRule(function(action, subject) {
+    if (action.id == "org.freedesktop.locale1.set-locale" ||
+        action.id == "org.freedesktop.locale1.set-keyboard") {
+        return ["unix-group:sudo"];
+    }
+});
