@@ -43,7 +43,9 @@ openssl req -new -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=Nyra Desktop C
 virt-fw-vars --input /usr/share/AAVMF/AAVMF_VARS.ms.fd --output "$sb/vars.fd" \
   --add-mok 605dab50-e046-4300-abb6-3dd810dd8b23 "$uki_cert" \
   --add-mok 605dab50-e046-4300-abb6-3dd810dd8b23 "$sb/local.crt"
-tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" systemd.import_credentials=yes "$sb/local.key" "$sb/local.crt"
+# The add-on's command line is the test's own, never the image's: credential import for the test console,
+# and what the boot screen needs to show in a VM (tests/vm/plasma.sh has the reasons).
+tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles" "$sb/local.key" "$sb/local.crt"
 
 # The boot files as the installer places them (nyra-base docs/BOOT.md): shim on the removable-media
 # path, systemd-boot under the name shim starts, MokManager; all from the image.
@@ -80,6 +82,8 @@ greeter='pgrep -u sddm -f "^/usr/bin/sddm-greeter-qt6 " >/dev/null && pgrep -u s
 session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value)" = wayland ] && [ "$(loginctl show-session "$s" -p Active --value)" = yes ] && pgrep -u nyratest -x plasmashell >/dev/null'
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
+# The boot screen, photographed as SDDM starts (tests/vm/plasma.sh has the reason).
+boot_shot="Starting .*Simple Desktop Display Manager=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/boot-screen.png\",\"format\":\"png\"}}"
 
 # The test user's screen is never locked by idling: a locked session shows the lock screen, not the desktop.
 nolock='[Daemon]\nAutolock=false\nLockOnResume=false\n'
@@ -113,6 +117,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
+  --qmp "$boot_shot" \
   --qmp "$(wake login-a 16000 16000)" --qmp "$(wake login-b 20000 12000)" \
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
@@ -128,8 +133,10 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
 
 # The screenshots show UI: the greeter, then the desktop (the first of each series that does; the job fails
-# when none does, after both are checked so that a log shows both).
+# when none does, after both are checked so that a log shows both), and the boot screen shows.
 rc=0
+# The boot screen was on the screen when SDDM started (the theme's background, the logo and its moon).
+python3 -I "$here/screen-splash.py" "$logs/boot-screen.png" || rc=1
 for s in login session; do
   files=(); for i in $(seq $((2*shots))); do files+=("$logs/$s-$i.png"); done
   out="$logs/login-screen.png"; [ "$s" = login ] || out="$logs/plasma-session.png"

@@ -4,6 +4,8 @@
 # dependencies come with them and are listed in the SBOM. A package enters only with a reason.
 sddm                  the login screen (display manager), started at boot
 sddm-theme-breeze     the look of the login screen, Plasma's own (Breeze)
+plymouth              the boot and shutdown screen (docs/IMAGE.md, "Boot screen"): shows the Nyra theme, then hands the screen to SDDM
+plymouth-label        text rendering that plymouth's script themes need: without it plymouthd crashes as soon as it runs the Nyra theme
 kwin-wayland          the compositor of the Plasma session, and of the login screen (Wayland, no X server)
 plasma-workspace      the Plasma session: plasmashell, startplasma-wayland and the session SDDM offers
 plasma-desktop        the desktop itself: panel, application launcher, desktop and task manager

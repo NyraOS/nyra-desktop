@@ -129,6 +129,7 @@ tablet, 2 vCPUs and 2 GiB.
 | Secure Boot is on | `mokutil --sb-state`, and the sealed command line with the composefs digest |
 | The system is up | `systemctl is-system-running --wait` is `running`, no failed unit |
 | The login screen shows | `sddm.service` active, its greeter and KWin running as the user `sddm`; a screenshot, `login-screen.png` |
+| The boot screen shows | the test's add-on adds `splash plymouth.ignore-serial-consoles` to the command line (see "The boot screen" below); a screenshot, `boot-screen.png`, is taken as SDDM starts, and `tests/vm/screen-splash.py` fails the job unless the screen is the theme's dark background with the logo's white planet and the accent-coloured moon in the middle |
 | The boot stays lean | the login screen's first window comes within 240 s of the kernel start (the time and `systemd-analyze blame` are printed), fewer than 250 units are active, the user `sddm` runs no PipeWire or WirePlumber, and no NetworkManager, ModemManager, Bluetooth or Avahi unit is loaded (`docs/IMAGE.md`, "Boot time") |
 | A Plasma session starts | a test user (`nyratest`), logged in by SDDM's autologin, set for the test only in `/etc/sddm.conf.d`: a logind session of type `wayland`, active, with `plasmashell` and `kwin_wayland` |
 | It stays up | the same `plasmashell` process and KWin after 90 s; a screenshot, `plasma-session.png` (with llvmpipe the first panel takes about a minute) |
@@ -140,6 +141,21 @@ tablet, 2 vCPUs and 2 GiB.
 | Languages are in the image | `tests/vm/fixtures/languages.sh`, run in the VM from the SD card: for English, Romanian, Japanese and Arabic, a UTF-8 locale whose weekday for 2 November 2026 is spelled as the language does (glibc's data, not a name in a list), the translation of a KDE application (Konsole's catalog) and of the login screen (SDDM), and a font with a letter of the script (U+0219, U+65E5, U+0639); a font for Hebrew, Devanagari, Bengali, Tamil, Thai, Hangul, Simplified Chinese, Greek and Cyrillic; a locale for each of twelve more languages; at least 300 UTF-8 locales in all; no `fcitx5` running. Any missing piece fails the test and names the language |
 | Settings may change the language and the layout | `tests/vm/fixtures/languages.sh`: `pkttyagent` is given the password of two new users while `pkcheck -u` runs; a member of `sudo` is let through for `org.freedesktop.locale1.set-locale` and `set-keyboard`, a user who is not a member is refused, and `org.freedesktop.timedate1.set-timezone` still asks for root (the rule `48-nyra-desktop-locale.rules` names only the first two) |
 | The login screen and the session follow the language | `tests/vm/fixtures/language-session.sh`, for Japanese (`jp`) and Arabic (`ara`, right to left): the script writes the files `localectl` would write (`/etc/locale.conf`, `/etc/vconsole.conf`, the X keyboard layout), as the installer does, because root on the serial console is no local session for polkit, and `localectl status` reads them back; SDDM restarts, and its greeter, then the Plasma session of the test user, must run with that `LANG`; a screenshot of each (`login-screen-ja.png`, `plasma-session-ja.png`, `login-screen-ar.png`, `plasma-session-ar.png`) |
+
+### The boot screen
+
+The splash is photographed with QMP's `screendump` (as the login screen is), triggered by the console
+line `Starting ... Simple Desktop Display Manager`: `sddm.service` starts after `plymouth-quit.service`,
+and plymouth quits with `--retain-splash`, so the last frame of the boot screen is on the screen when
+SDDM starts, and stays until KWin draws the greeter (seconds later, and under emulation much later).
+A boot where plymouth showed text instead, crashed, or never started leaves a screen that has no logo,
+and `screen-splash.py` fails. The shares it checks are of the screen's shorter side, as the theme's are,
+so the VM's resolution does not matter.
+
+The command line of the desktop image has no `splash` (nyra-base's change), without which plymouth does
+not show its theme, and a serial console (which the test needs) makes plymouth fall back to its text theme.
+The test's add-on, never the image, adds `splash plymouth.ignore-serial-consoles`. When nyra-base's
+change is in, `splash` is no longer test only.
 
 **The H.264 clip** (`tests/vm/fixtures/h264.mp4`, 3 KB) is our own: generated for this test, test only, never shipped (the
 Containerfile copies only `image/files/usr`). The command, run with Debian testing's `ffmpeg` (libx264):
