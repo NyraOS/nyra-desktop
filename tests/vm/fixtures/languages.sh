@@ -53,12 +53,32 @@ echo "$n UTF-8 locales"
 
 # Settings saves the language and the layout through systemd-localed, which asks polkit. The base makes root
 # the only polkit administrator (49-nyra.rules), so without image/files/usr/share/polkit-1/rules.d/48-nyra-desktop-locale.rules
-# nobody could approve it. Here two users really authenticate (a text agent in a pseudo-terminal types the
-# password): a member of sudo must be let through for each of the two locale1 actions with their own password,
+# nobody could approve it. Here two users really authenticate (pkttyagent in a pseudo-terminal, fed the
+# password by a few lines of Python): a member of sudo must be let through for each of the two locale1 actions with their own password,
 # a user who is not a member must be refused, and an action the rule does not name (the time zone) must still
 # need root, whose password nobody has. The users exist for this check only.
-polkit_check() { # USER PASSWORD ACTION: the exit code of pkcheck and the identity the agent asked for
-  (sleep 3; echo "$2") | runuser -u "$1" -- script -qec "sh -c 'pkttyagent --process \$\$ & sleep 1; timeout 20 pkcheck -u --action-id org.freedesktop.$3 --process \$\$; echo \"RESULT \$?\"'" /dev/null 2>&1 | tr -d '\r'
+polkit_check() {
+  python3 -I -c '
+import os, pty, select, sys, time
+user, password, action = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("runuser", ["runuser", "-u", user, "--", "sh", "-c",
+        "pkttyagent --process $$ & sleep 1; timeout 20 pkcheck -u --action-id org.freedesktop." + action + " --process $$; echo RESULT $?"])
+start, sent = time.time(), False
+while True:
+    if not sent and time.time() - start > 3:
+        os.write(fd, (password + "\n").encode())
+        sent = True
+    if select.select([fd], [], [], 1)[0]:
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            break
+        if not data:
+            break
+        sys.stdout.write(data.decode(errors="replace").replace("\r", ""))
+' "$1" "$2" "$3"
 }
 if ! { useradd -m -G sudo nyraadmin && useradd -m nyraplain && printf 'nyraadmin:pw-admin\nnyraplain:pw-plain\n' | chpasswd; }; then
   fail "cannot make the polkit test users"
