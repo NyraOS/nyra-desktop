@@ -184,21 +184,27 @@ on x86_64.
 
 It checks Secure Boot, the sealed command line, a running system with no failed unit, the login screen by
 its processes (the greeter and KWin as `sddm`), a Plasma session of the test user that stays up and no
-crash, as in the table above. Its screenshots (`login-screen.png`, `plasma-session.png`) are kept but not
-checked beyond being PNG files. It does not run the SD card, printing, sound and video tests: they would
+crash, as in the table above. It also checks that its screenshots show UI: the greeter and the desktop, not
+only the wallpaper (see below). It does not run the SD card, printing, sound and video tests: they would
 add little to what the x86_64 test proves of the packages (the same package versions, the same
 configuration) and a long wait each under emulation.
 
 Emulated, the desktop takes minutes to start. `vm-boot.py` lets every guest command run for 300 s at most,
 so a wait for the greeter or the session is a series of polls of 210 s (up to 10 of each; 2 with KVM) that
-never fail, followed by the command that must succeed. The screenshots follow a best-effort wait for the
-user's processes (`sddm`, then the test user) to use at most 1 s of CPU in a 20 s window, and a second
-screenshot follows 90 s later (`login-screen.png`, `login-screen-2.png`, `plasma-session.png`,
-`plasma-session-2.png`). The wait is not reliable: in CI every poll timed out, so the screenshots show the
-wallpaper or the lock screen, not a visible greeter or desktop. They are kept for a person to look at and
-are not evidence. The evidence is the process and session checks: the greeter and KWin running as `sddm`,
-a Wayland session of the test user that is active, the same `plasmashell` PID after 60 s, and no crash
-strings in the journal.
+never fail, followed by the command that must succeed.
+
+The screenshots do not wait for a quiet CPU: the emulated greeter and desktop keep both vCPUs busy for as
+long as the test looks (see "The CPU use under emulation"), so there is no quiet moment to wait for.
+Instead each screen is woken with QMP input events (a key press and release, a move of the `usb-tablet`;
+the greeter and a locked session paint their UI only after input) and photographed every 30 s, ten times
+(`login-1.png` to `login-10.png`, `session-1.png` to `session-10.png`), with the CPU seconds of each 30 s
+in the log. `tests/vm/screen-ui.py` counts the sharp colour edges in the bottom 7 % of each photograph
+(the greeter's labels and Plasma's panel are there; the wallpaper and the lock screen's clock are not,
+and the wallpaper's own edges are soft: 0 against about 1200 for the greeter and 800 for the panel),
+copies the first photograph with at least 300 of them to `login-screen.png` (`plasma-session.png`), and
+fails the job when none has, so a screen that stays on the wallpaper or the lock screen fails with
+the list of photographs checked. The test user's screen never locks by idling
+(`Autolock=false` in `kscreenlockerrc`), which would cover the desktop.
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of
