@@ -161,9 +161,10 @@ The channel sheets are not touched: putting a release on a channel is a reviewed
 nyra-updates (`channels/nyra-desktop/releases.json`, then the channel). The summary of `publish` prints the
 `releases.json` line.
 
-**`UPDATES_PIN` is empty today.** It must be the merge commit of the nyra-updates pull request that adds
-`nyra-desktop` and `nyra-desktop-arm64` to the repository allow-list (`publish-image.sh` and the registry's
-`REPOSITORIES`). Until it is set, `publish` and `publish-arm64` fail before anything is read. It moves only by
+**`UPDATES_PIN` is set to `a28d8fed29611109e01dd255a58c34bfe6903a8b`** in `image.yml`, in both jobs. It is the
+merge commit of the nyra-updates pull request that adds `nyra-desktop` and `nyra-desktop-arm64` to the repository
+allow-list (`publish-image.sh` and the registry's `REPOSITORIES`). Without it, `publish` and `publish-arm64` fail
+before anything is read. It moves only by
 a reviewed pull request that reads the nyra-updates diff from the old pin to the new one, the same value in
 both jobs.
 

@@ -811,7 +811,7 @@ jobs:
       # nyra-desktop-arm64 to the repository allow-list (until then the script refuses these names, and an
       # empty pin fails this job before anything is read). It moves only by a reviewed pull request that
       # reads the nyra-updates diff from the old pin to the new one.
-      UPDATES_PIN: ""
+      UPDATES_PIN: "a28d8fed29611109e01dd255a58c34bfe6903a8b"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1697,7 +1697,7 @@ jobs:
     env:
       REPOSITORY: nyra-desktop-arm64
       # As publish's UPDATES_PIN (NOT SET YET); the two always move together.
-      UPDATES_PIN: ""
+      UPDATES_PIN: "a28d8fed29611109e01dd255a58c34bfe6903a8b"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
