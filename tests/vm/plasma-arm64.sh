@@ -82,11 +82,12 @@ greeter='pgrep -u sddm -f "^/usr/bin/sddm-greeter-qt6 " >/dev/null && pgrep -u s
 session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value)" = wayland ] && [ "$(loginctl show-session "$s" -p Active --value)" = yes ] && pgrep -u nyratest -x plasmashell >/dev/null'
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
-# The boot screen is photographed by the first command, once the test console is up, and SDDM's start is
+# The boot screen is photographed by the first command, once the test console is up, and plymouth-quit (which
+# SDDM waits for) is
 # held until then (a drop-in passed as a credential, test only): the console prints nothing once plymouth
-# shows its screen, so no line says when to photograph, and the frame plymouth leaves behind is replaced
-# as soon as KWin of the login screen starts.
-hold_sddm=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
+# shows its screen, so no line says when to photograph, and once plymouth quits it
+# lets go of the display, which goes blank.
+hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
 boot_shot_cmd="echo NYRA-SHOT-''boot-screen && sleep 3 && touch /run/nyra-boot-shot"
 
 # The test user's screen is never locked by idling: a locked session shows the lock screen, not the desktop.
@@ -121,7 +122,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
-  --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.sddm.service=$hold_sddm" \
+  --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.plymouth-quit.service=$hold_quit" \
   --qmp "$(wake login-a 16000 16000)" --qmp "$(wake login-b 20000 12000)" \
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \

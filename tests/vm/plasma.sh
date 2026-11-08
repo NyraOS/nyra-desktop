@@ -50,7 +50,7 @@ virt-fw-vars --input /usr/share/OVMF/OVMF_VARS_4M.ms.fd --output "$sb/vars.fd" \
 # and what the boot screen needs to show in a VM (docs/TESTING.md, "The boot screen"). The sealed command
 # line has no "splash", which plymouth shows its theme only with (nyra-base's change), and the serial
 # console that the test needs makes plymouth fall back to its text theme unless it is told to ignore it.
-tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles plymouth.debug=file:/run/plymouth-debug.log" "$sb/local.key" "$sb/local.crt"
+tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles" "$sb/local.key" "$sb/local.crt"
 
 # The boot files as the installer places them (nyra-base docs/BOOT.md): shim on the removable-media
 # path, systemd-boot under the name shim starts, MokManager; all from the image.
@@ -104,11 +104,12 @@ card=/run/media/nyratest/NYRASD
 # as raw yuv420p (the H.264 decoder is bit-exact, so it does not depend on the ffmpeg version).
 clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
-# The boot screen is photographed by the first command, once the test console is up, and SDDM's start is
+# The boot screen is photographed by the first command, once the test console is up, and plymouth-quit (which
+# SDDM waits for) is
 # held until then (a drop-in passed as a credential, test only): the console prints nothing once plymouth
-# shows its screen, so no line says when to photograph, and the frame plymouth leaves behind is replaced
-# as soon as KWin of the login screen starts.
-hold_sddm=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
+# shows its screen, so no line says when to photograph, and once plymouth quits it
+# lets go of the display, which goes blank.
+hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
 boot_shot_cmd="echo NYRA-SHOT-''boot-screen && sleep 3 && touch /run/nyra-boot-shot"
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout 300 \
@@ -119,14 +120,13 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-audiodev --qemu=none,id=snd0 --qemu=-device --qemu=intel-hda --qemu=-device --qemu=hda-duplex,audiodev=snd0 \
   --smbios "io.systemd.stub.kernel-cmdline-extra=console=ttyS0" \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
-  --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.sddm.service=$hold_sddm" \
+  --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.plymouth-quit.service=$hold_quit" \
   --qmp "$(shot login-screen)" --qmp "$(shot plasma-session)" \
   --qmp "$(shot login-screen-ja)" --qmp "$(shot plasma-session-ja)" \
   --qmp "$(shot login-screen-ar)" --qmp "$(shot plasma-session-ar)" \
   --log "$logs/serial-plasma.log" --summary "$summary" \
   --title "Desktop: Secure Boot to the login screen, then a Plasma session" \
   --command "$boot_shot_cmd" \
-  --command 'ls -l /dev/dri; ls /sys/class/drm; systemctl --no-pager status plymouth-start.service plymouth-quit.service | cut -c1-200; journalctl -b --no-pager -u plymouth-start.service | tail; cut -c1-220 /run/plymouth-debug.log | grep -a -i -E "device|renderer|theme|splash|serial|drm|error|fail|crash|quit|timeout|console" | tail -70; true' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
   --command 's="$(systemctl is-system-running --wait)"; echo "system: $s"; systemctl --no-pager --failed; test "$s" = running' \
