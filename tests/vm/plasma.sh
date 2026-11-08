@@ -50,7 +50,7 @@ virt-fw-vars --input /usr/share/OVMF/OVMF_VARS_4M.ms.fd --output "$sb/vars.fd" \
 # and what the boot screen needs to show in a VM (docs/TESTING.md, "The boot screen"). The sealed command
 # line has no "splash", which plymouth shows its theme only with (nyra-base's change), and the serial
 # console that the test needs makes plymouth fall back to its text theme unless it is told to ignore it.
-tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles" "$sb/local.key" "$sb/local.crt"
+tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles plymouth.debug=file:/run/plymouth-debug.log" "$sb/local.key" "$sb/local.crt"
 
 # The boot files as the installer places them (nyra-base docs/BOOT.md): shim on the removable-media
 # path, systemd-boot under the name shim starts, MokManager; all from the image.
@@ -126,6 +126,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --log "$logs/serial-plasma.log" --summary "$summary" \
   --title "Desktop: Secure Boot to the login screen, then a Plasma session" \
   --command "$boot_shot_cmd" \
+  --command 'ls -l /dev/dri; ls /sys/class/drm; systemctl --no-pager status plymouth-start.service plymouth-quit.service | cut -c1-200; journalctl -b --no-pager -u plymouth-start.service | tail; cut -c1-220 /run/plymouth-debug.log | grep -a -i -E "device|renderer|theme|splash|serial|drm|error|fail|crash|quit|timeout|console" | tail -70; true' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
   --command 's="$(systemctl is-system-running --wait)"; echo "system: $s"; systemctl --no-pager --failed; test "$s" = running' \
