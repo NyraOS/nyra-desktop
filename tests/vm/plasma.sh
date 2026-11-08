@@ -104,13 +104,11 @@ card=/run/media/nyratest/NYRASD
 # as raw yuv420p (the H.264 decoder is bit-exact, so it does not depend on the ffmpeg version).
 clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
-# The boot screen is photographed by the first command, once the test console is up, and plymouth-quit (which
-# SDDM waits for) is
-# held until then (a drop-in passed as a credential, test only): the console prints nothing once plymouth
-# shows its screen, so no line says when to photograph, and once plymouth quits it
-# lets go of the display, which goes blank.
-hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
-boot_shot_cmd="echo NYRA-SHOT-''boot-screen && sleep 3 && touch /run/nyra-boot-shot"
+# The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
+# so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
+# for, then waits 4 s: once plymouth quits it lets go of the display, which goes blank. The getty and SDDM
+# start after plymouth-quit, so they wait too.
+hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'echo NYRA-SHOT-boot-screen >/dev/console; sleep 4\''
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout 300 \
   --qemu=-device --qemu=virtio-vga --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
@@ -126,7 +124,6 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qmp "$(shot login-screen-ar)" --qmp "$(shot plasma-session-ar)" \
   --log "$logs/serial-plasma.log" --summary "$summary" \
   --title "Desktop: Secure Boot to the login screen, then a Plasma session" \
-  --command "$boot_shot_cmd" \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
   --command 's="$(systemctl is-system-running --wait)"; echo "system: $s"; systemctl --no-pager --failed; test "$s" = running' \

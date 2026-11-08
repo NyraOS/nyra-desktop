@@ -144,12 +144,11 @@ tablet, 2 vCPUs and 2 GiB.
 
 ### The boot screen
 
-The splash is photographed with QMP's `screendump` (as the login screen is), triggered by the first
-command that runs on the test console. Once plymouth shows its screen the serial console prints nothing
-more, so no console line says when to photograph, and when plymouth quits it lets go of the display, which
-goes blank in the VM (the DRM master is dropped) until KWin draws. So the test holds `plymouth-quit.service` (and so SDDM,
-which starts after it) with a drop-in passed as a credential (test only: `ExecStartPre` waits for a file), and the first command photographs the screen,
-then creates the file. What is photographed is plymouth's animated screen. A boot where plymouth showed text instead, crashed, or never started
+The splash is photographed with QMP's `screendump` (as the login screen is). Once plymouth shows its screen the
+serial console prints nothing more, so no console line says when to photograph, and when plymouth quits it
+lets go of the display, which goes blank in the VM. So the test passes `plymouth-quit.service` a drop-in as a
+credential (test only): it prints a marker line to the console, which triggers the screendump, then waits
+4 s. What is photographed is plymouth's animated screen. A boot where plymouth showed text instead, crashed, or never started
 leaves a screen that has no logo, and `screen-splash.py` fails. The shares it checks are of the screen's
 shorter side, as the theme's are, so the VM's resolution does not matter.
 

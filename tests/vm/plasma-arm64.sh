@@ -82,13 +82,11 @@ greeter='pgrep -u sddm -f "^/usr/bin/sddm-greeter-qt6 " >/dev/null && pgrep -u s
 session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value)" = wayland ] && [ "$(loginctl show-session "$s" -p Active --value)" = yes ] && pgrep -u nyratest -x plasmashell >/dev/null'
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
-# The boot screen is photographed by the first command, once the test console is up, and plymouth-quit (which
-# SDDM waits for) is
-# held until then (a drop-in passed as a credential, test only): the console prints nothing once plymouth
-# shows its screen, so no line says when to photograph, and once plymouth quits it
-# lets go of the display, which goes blank.
-hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'while [ ! -e /run/nyra-boot-shot ]; do sleep 0.2; done\''
-boot_shot_cmd="echo NYRA-SHOT-''boot-screen && sleep 3 && touch /run/nyra-boot-shot"
+# The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
+# so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
+# for, then waits 4 s: once plymouth quits it lets go of the display, which goes blank. The getty and SDDM
+# start after plymouth-quit, so they wait too.
+hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'echo NYRA-SHOT-boot-screen >/dev/console; sleep 4\''
 
 # The test user's screen is never locked by idling: a locked session shows the lock screen, not the desktop.
 nolock='[Daemon]\nAutolock=false\nLockOnResume=false\n'
@@ -127,7 +125,6 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
-  --command "$boot_shot_cmd" \
   --command 'uname -m; test "$(uname -m)" = aarch64' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
