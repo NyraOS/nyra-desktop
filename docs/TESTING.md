@@ -196,7 +196,7 @@ never fail, followed by the command that must succeed.
 The screenshots do not wait for a quiet CPU: the emulated greeter and desktop keep both vCPUs busy for as
 long as the test looks (see "The CPU use under emulation"), so there is no quiet moment to wait for.
 Instead each screen is woken with QMP input events (a key press and release, a move of the `usb-tablet`;
-the greeter and a locked session paint their UI only after input) and photographed every 30 s, ten times
+emulated, the greeter showed only the wallpaper and a locked session only the lock screen without input) and photographed every 30 s, ten times
 (`login-1.png` to `login-10.png`, `session-1.png` to `session-10.png`), with the CPU seconds of each 30 s
 in the log. `tests/vm/screen-ui.py` counts the sharp colour edges in the bottom 7 % of each photograph
 (the greeter's labels and Plasma's panel are there; the wallpaper and the lock screen's clock are not,
@@ -205,6 +205,23 @@ copies the first photograph with at least 300 of them to `login-screen.png` (`pl
 fails the job when none has, so a screen that stays on the wallpaper or the lock screen fails with
 the list of photographs checked. The test user's screen never locks by idling
 (`Autolock=false` in `kscreenlockerrc`), which would cover the desktop.
+#### The CPU use under emulation
+
+Emulated (TCG), the greeter and the desktop use both vCPUs for as long as anyone looked: in CI the greeter
+used 40 to 60 s of CPU per 30 s, the desktop (`plasmashell` and KWin) the same, also with no input. The
+log of the test lists the busiest threads of each 30 s. The cause is software rendering, not a loop in the
+greeter: the CPU is in the `llvmpipe-0` and `llvmpipe-1` threads (Mesa's software rasteriser, which Qt
+Quick and KWin use because the VM has no GPU) of `sddm-greeter-qt6` (about 22 s each per 30 s) and of
+`kwin_wayland` (about 7 s each), while the greeter's own threads (`QSGRenderThread`, the main thread) are
+nearly idle. The greeter draws a blurred full-screen wallpaper; what makes it repaint all the time (the clock and the
+blinking cursor are the likely ones) was not isolated, but each repaint is rasterised on the CPU.
+
+x86_64 under KVM runs the same threads in the same proportions, only about 15 times cheaper: the idle
+greeter used 2 to 7 s of CPU per 30 s in all (1 to 2 s in each `llvmpipe` thread) and the desktop none after its first
+half minute, measured with the same log. So the arm64 image does the same as the x86_64 image; emulation
+cannot keep up with the rasteriser. Nothing in the image is changed for this, and the test sets no
+rendering option: the screenshots are taken of the rendering users get, and the test needs no quiet CPU.
+
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of
