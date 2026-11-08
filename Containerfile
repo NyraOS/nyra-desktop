@@ -48,9 +48,14 @@ COPY image/files/usr/ /usr/
 # /etc/plymouth/plymouthd.conf, which is the user's, and otherwise from Debian's defaults file in /usr,
 # the one we change here; grep fails the build when Debian's file changes shape or the user's file in the
 # image already names a theme.
+# DeviceTimeout is how long plymouth waits for udev to finish with the graphics device before it gives up
+# and shows text (8 s by default). A slow machine (the aarch64 CI VM, emulated, needs longer) would get the
+# text screen instead of the theme; a headless one is not affected, it has nothing to show either way.
 RUN sed -i 's/^Theme=ceratopsian$/Theme=nyra/' /usr/share/plymouth/plymouthd.defaults && \
+    sed -i '/^DeviceTimeout=/d' /usr/share/plymouth/plymouthd.defaults && \
+    echo 'DeviceTimeout=30' >> /usr/share/plymouth/plymouthd.defaults && \
     test "$(grep -c '^Theme=' /usr/share/plymouth/plymouthd.defaults)" = 1 && \
-    grep -qx 'Theme=nyra' /usr/share/plymouth/plymouthd.defaults && \
+    grep -qx 'Theme=nyra' /usr/share/plymouth/plymouthd.defaults && grep -qx 'DeviceTimeout=30' /usr/share/plymouth/plymouthd.defaults && \
     ! grep -q '^Theme=' /etc/plymouth/plymouthd.conf && \
     test -f /usr/share/plymouth/themes/nyra/nyra.plymouth && test -f /usr/lib/*-linux-gnu/plymouth/script.so
 

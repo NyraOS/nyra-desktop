@@ -144,7 +144,8 @@ is not under the GPL, see `image/plymouth/README.md`).
 - `plymouth` and `plymouth-label` are in the image. The label package is needed: `plymouthd` crashes as
   soon as it runs a script theme without it.
 - The theme is the default one: the Containerfile sets it in Debian's `plymouthd.defaults` in `/usr`, as
-  `/etc/plymouth/plymouthd.conf` is the user's.
+  `/etc/plymouth/plymouthd.conf` is the user's. It also sets `DeviceTimeout=30` (default 8): plymouth shows text
+  when udev has not finished with the graphics device by then, which an emulated aarch64 machine does not.
 - Hand-over to the login screen: `plymouth-quit.service` quits with `--retain-splash`, so the last frame
   stays until KWin draws the greeter, and `sddm.service` starts after `plymouth-quit.service`, because
   KWin cannot take the display while plymouth holds it.
