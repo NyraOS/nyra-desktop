@@ -14,11 +14,16 @@
 # console add-on and VM runner. The test console add-on is signed here with a key made for this run,
 # enrolled as a MOK next to the UKI's, and deleted at the end with the other files of WORKDIR/secure-boot.
 # Never use a real key here. The test user logs in through SDDM's autologin, set for the test only in
-# /etc/sddm.conf.d: the login screen itself is checked by its processes (the greeter and KWin as sddm), not by
-# its screenshot. The screenshots are kept for a person to look at; they are not evidence of a visible greeter
-# or desktop, since the best-effort wait for quiet CPU timed out in CI and they show the wallpaper or the lock
-# screen. The evidence is the process and session checks.
+# /etc/sddm.conf.d.
+# The screenshots are evidence too: the greeter and the desktop must show real UI. An emulated greeter
+# or desktop stays on the wallpaper (the greeter) or the lock screen (the session) until it gets input and
+# has had time to paint, so each is woken with QMP key and tablet events and then photographed every 30 s;
+# tests/vm/screen-ui.py takes the first photograph that shows UI as login-screen.png (plasma-session.png)
+# and fails the job when none does. Nothing waits for a quiet CPU: under emulation the greeter keeps both
+# vCPUs busy (docs/TESTING.md), so the CPU use of each 30 s is only logged.
 set -euo pipefail
+
+here="$(dirname "$(realpath "$0")")"
 
 base_src="$(realpath "$1")" image="$2" uki_cert="$(realpath "$3")" work="$(realpath "$4")"
 logs="$(realpath "$5")" summary="$(realpath -m "$6")"
@@ -76,30 +81,40 @@ session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ 
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 
-# quiet USER: the user's processes used at most 1 s of CPU in the last 20 s. Best effort only: the wait ends
-# after its polls even when it has not succeeded (in CI every poll timed out, "not ready after 210 s"), and the
-# screenshots are taken anyway. They can show the wallpaper or the lock screen, so they are not checked.
-quiet='quiet() { a=$(ps -u "$1" -o cputimes= | awk "{s+=\$1} END {print s+0}"); sleep 20; b=$(ps -u "$1" -o cputimes= | awk "{s+=\$1} END {print s+0}"); echo "cpu of $1 in 20 s: $((b-a)) s"; [ $((b-a)) -le 1 ]; }; quiet2() { quiet "$1" && quiet "$1"; }'
-# Two commands of the same kind, 90 s apart: the later screenshot is the one that shows the settled screen.
-args=(--command "$quiet")
+# The test user's screen is never locked by idling: a locked session shows the lock screen, not the desktop.
+nolock='[Daemon]\nAutolock=false\nLockOnResume=false\n'
+# Input for the guest, a QMP event (a key press and release, a tablet move) that wakes the greeter and the
+# desktop. The tablet is absolute: 0 to 32767 on both axes. Each wake has its own name, the marker the guest
+# prints, because vm-boot.py sends a QMP command once.
+wake() { echo "NYRA-WAKE-$1=>{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"key\",\"data\":{\"down\":true,\"key\":{\"type\":\"qcode\",\"data\":\"shift\"}}},{\"type\":\"key\",\"data\":{\"down\":false,\"key\":{\"type\":\"qcode\",\"data\":\"shift\"}}},{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$2}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$3}}]}}"; }
+# series NAME WAKE FIRST LAST: wake the screen, then NAME-FIRST ... NAME-LAST, one every 30 s, each with the
+# CPU seconds all threads used in that time (the guest has 2 vCPUs: 60 s is full load) and the eight that
+# used most (the thread names tell the renderer's threads, llvmpipe's rasteriser threads, apart). Under 300 s, what a guest command may take.
+series='series() { echo NYRA-WAKE-$1-$2; for i in $(seq $3 $4); do ps -eLo tid=,cputimes=,pid=,comm= > /tmp/c1; sleep 30; ps -eLo tid=,cputimes=,pid=,comm= > /tmp/c2; echo "cpu in 30 s, all threads: $(awk "NR==FNR {a[\$1]=\$2; next} {s+=\$2-a[\$1]} END {print s+0}" /tmp/c1 /tmp/c2) s; the busiest (seconds, process, thread):"; awk "NR==FNR {a[\$1]=\$2; next} \$2-a[\$1] > 0 {print \$2-a[\$1], \$3, \$4}" /tmp/c1 /tmp/c2 | sort -rn | head -8; echo NYRA-SHOT-$1-$i; sleep 3; done; }'
+shots=5  # per command; two commands (and two wakes) for each of the screens
+args=(--command "$series")
 for _ in $(seq "$polls"); do args+=(--command "$poll '$greeter'"); done
 args+=(--command "$greeter && ps -o user=,rss=,args= -u sddm")
-for _ in $(seq "$polls"); do args+=(--command "$poll 'quiet2 sddm'"); done
-args+=(--command "echo NYRA-SHOT-''login-screen && sleep 3")
-args+=(--command "sleep 90; quiet2 sddm; echo NYRA-SHOT-''login-screen-2 && sleep 3")
-args+=(--command "useradd -m -s /bin/bash nyratest && mkdir -p /etc/sddm.conf.d && printf '$autologin' > /etc/sddm.conf.d/99-nyra-test.conf && systemctl restart sddm.service")
+args+=(--command "series login a 1 $shots")
+args+=(--command "series login b $((shots+1)) $((2*shots))")
+args+=(--command "useradd -m -s /bin/bash nyratest && install -d -o nyratest -g nyratest ~nyratest/.config && printf '$nolock' > ~nyratest/.config/kscreenlockerrc && chown nyratest: ~nyratest/.config/kscreenlockerrc && mkdir -p /etc/sddm.conf.d && printf '$autologin' > /etc/sddm.conf.d/99-nyra-test.conf && systemctl restart sddm.service")
 for _ in $(seq "$polls"); do args+=(--command "$poll '$session'"); done
 args+=(--command "$session && loginctl && pgrep -u nyratest -x plasmashell > /tmp/plasmashell.pid && sleep 60")
 args+=(--command 'test "$(pgrep -u nyratest -x plasmashell)" = "$(cat /tmp/plasmashell.pid)" && pgrep -u nyratest -x kwin_wayland >/dev/null && echo "plasmashell $(cat /tmp/plasmashell.pid) and kwin_wayland still run" && ps -o rss=,args= -u nyratest | sort -rn | head -12')
-for _ in $(seq "$polls"); do args+=(--command "$poll 'quiet2 nyratest'"); done
-args+=(--command "echo NYRA-SHOT-''plasma-session && sleep 3")
-args+=(--command 'sleep 90; test "$(pgrep -u nyratest -x plasmashell)" = "$(cat /tmp/plasmashell.pid)" && echo NYRA-SHOT-"plasma-session-2" && sleep 3')
+args+=(--command "series session a 1 $shots")
+args+=(--command "series session b $((shots+1)) $((2*shots)); test \"\$(pgrep -u nyratest -x plasmashell)\" = \"\$(cat /tmp/plasmashell.pid)\"")
+
+shot_args=()
+for s in login session; do
+  for i in $(seq $((2*shots))); do shot_args+=(--qmp "$(shot "$s-$i")"); done
+done
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout "$boot_timeout" \
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
-  --qmp "$(shot login-screen)" --qmp "$(shot login-screen-2)" --qmp "$(shot plasma-session)" --qmp "$(shot plasma-session-2)" \
+  --qmp "$(wake login-a 16000 16000)" --qmp "$(wake login-b 20000 12000)" \
+  --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
   --command 'uname -m; test "$(uname -m)" = aarch64' \
@@ -112,9 +127,12 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command 'systemctl show sddm.service -p MemoryCurrent; systemctl show user-$(id -u sddm).slice -p MemoryCurrent; systemctl --no-pager list-units --type=service --state=running --no-legend --plain | cut -d" " -f1' \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
 
-# The four screenshots were taken, and are PNG files with some content in them (a blank screen compresses to
-# a few hundred bytes).
-for s in login-screen login-screen-2 plasma-session plasma-session-2; do
-  test "$(stat -c %s "$logs/$s.png")" -gt 5000
-  [ "$(head -c 4 "$logs/$s.png" | tail -c 3)" = PNG ]
+# The screenshots show UI: the greeter, then the desktop (the first of each series that does; the job fails
+# when none does, after both are checked so that a log shows both).
+rc=0
+for s in login session; do
+  files=(); for i in $(seq $((2*shots))); do files+=("$logs/$s-$i.png"); done
+  out="$logs/login-screen.png"; [ "$s" = login ] || out="$logs/plasma-session.png"
+  python3 -I "$here/screen-ui.py" 300 "$out" "${files[@]}" || rc=1
 done
+exit "$rc"
