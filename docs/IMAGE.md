@@ -92,7 +92,7 @@ image without and three with the change below, on a busy host):
   `{pipewire,pipewire-pulse}.socket.d` get `ConditionUser=!sddm`, so those units do not start for the
   greeter's user; every other user gets sound as before. The base's updates, signatures, firewall and
   TPM unlock are not touched. The login screen has three processes and two user sockets fewer, and the
-  active units were 203 in the VM run that measured this change (system and the greeter's user included); the CI boot job counts 212 today, after later packages.
+  active units were 203 in the VM run that measured this change (system and the greeter's user included); the CI boot job counts 212, after later packages.
 - **The time.** To the greeter's first window: 42, 45 and 135 s after the kernel started without the
   change (userspace 19, 23 and 63 s), 44, 59 and 101 s with it (21, 30 and 50 s). The spread is the
   host, not the image (the runs were on a VPS shared with other jobs), and the change is not visible in
