@@ -45,7 +45,7 @@ virt-fw-vars --input /usr/share/AAVMF/AAVMF_VARS.ms.fd --output "$sb/vars.fd" \
   --add-mok 605dab50-e046-4300-abb6-3dd810dd8b23 "$sb/local.crt"
 # The add-on's command line is the test's own, never the image's: credential import for the test console,
 # and what the boot screen needs to show in a VM (tests/vm/plasma.sh has the reasons).
-tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles" "$sb/local.key" "$sb/local.crt"
+tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles plymouth.debug=file:/run/plymouth-debug.log" "$sb/local.key" "$sb/local.crt"
 
 # The boot files as the installer places them (nyra-base docs/BOOT.md): shim on the removable-media
 # path, systemd-boot under the name shim starts, MokManager; all from the image.
@@ -125,6 +125,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
+  --command 'ls /usr/lib/*-linux-gnu/plymouth/ | head -30; plymouth --version; grep -a -i -E "theme|plugin|script|splash|load|fail|error|fall|renderer|device|serial" /run/plymouth-debug.log | grep -a -v "escape character" | cut -c1-230 | head -80; true' \
   --command 'uname -m; test "$(uname -m)" = aarch64' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
