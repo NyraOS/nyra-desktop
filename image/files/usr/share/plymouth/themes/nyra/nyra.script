@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The boot and shutdown screen: the Nyra logo and a loading ring on the dark background of the boot
+// design, no text. Every size is a share of the shorter side of the screen, so it looks the same on
+// any resolution. The same screen shows at boot and at shutdown.
+
+Window.SetBackgroundTopColor(0.043, 0.055, 0.078);
+Window.SetBackgroundBottomColor(0.043, 0.055, 0.078);
+
+width = Window.GetWidth();
+height = Window.GetHeight();
+unit = Math.Min(width, height);
+
+// The logo, the gap and the ring below it form one group, centred on the screen.
+logo_size = Math.Int(unit * 0.16);
+ring_size = Math.Int(logo_size * 0.3);
+gap = Math.Int(logo_size * 0.1);
+top = Window.GetY() + (height - (logo_size + gap + ring_size)) / 2;
+left = Window.GetX() + width / 2;
+
+logo = Sprite(Image("logo.png").Scale(logo_size, logo_size));
+logo.SetPosition(left - logo_size / 2, top, 1);
+
+track = Sprite(Image("ring-track.png").Scale(ring_size, ring_size));
+track.SetPosition(left - ring_size / 2, top + logo_size + gap, 1);
+
+// Only the arc moves. Turning an image the size of the ring is cheap, and 20 steps a second is smooth
+// enough for it: the screen is drawn in software, on machines without a GPU driver too.
+arc_image = Image("ring-arc.png").Scale(ring_size, ring_size);
+arc = Sprite(arc_image);
+arc.SetPosition(left - ring_size / 2, top + logo_size + gap, 2);
+
+steps_per_second = 20;
+angle = 0;
+fun refresh() {
+  // One turn takes 1.6 seconds, as in the design.
+  angle += 2 * Math.Pi / (steps_per_second * 1.6);
+  arc.SetImage(arc_image.Rotate(angle));
+}
+Plymouth.SetRefreshRate(steps_per_second);
+Plymouth.SetRefreshFunction(refresh);

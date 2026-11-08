@@ -46,7 +46,11 @@ openssl req -new -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=Nyra Desktop C
 virt-fw-vars --input /usr/share/OVMF/OVMF_VARS_4M.ms.fd --output "$sb/vars.fd" \
   --add-mok 605dab50-e046-4300-abb6-3dd810dd8b23 "$uki_cert" \
   --add-mok 605dab50-e046-4300-abb6-3dd810dd8b23 "$sb/local.crt"
-tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" systemd.import_credentials=yes "$sb/local.key" "$sb/local.crt"
+# The add-on's command line is the test's own, never the image's: credential import for the test console,
+# and what the boot screen needs to show in a VM (docs/TESTING.md, "The boot screen"). The sealed command
+# line has no "splash", which plymouth shows its theme only with (nyra-base's change), and the serial
+# console that the test needs makes plymouth fall back to its text theme unless it is told to ignore it.
+tools/vm/test-addon.sh "$image" "$sb/console.addon.efi" "systemd.import_credentials=yes splash plymouth.ignore-serial-consoles" "$sb/local.key" "$sb/local.crt"
 
 # The boot files as the installer places them (nyra-base docs/BOOT.md): shim on the removable-media
 # path, systemd-boot under the name shim starts, MokManager; all from the image.
@@ -100,6 +104,11 @@ card=/run/media/nyratest/NYRASD
 # as raw yuv420p (the H.264 decoder is bit-exact, so it does not depend on the ffmpeg version).
 clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
+# The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
+# so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
+# for on the serial port itself (plymouth redirects /dev/console), then waits 4 s: once plymouth quits it lets go of the display, which goes blank. The getty and SDDM
+# start after plymouth-quit, so they wait too.
+hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'echo NYRA-SHOT-boot-screen >/dev/ttyS0; sleep 4\''
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout 300 \
   --qemu=-device --qemu=virtio-vga --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
@@ -109,6 +118,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qemu=-audiodev --qemu=none,id=snd0 --qemu=-device --qemu=intel-hda --qemu=-device --qemu=hda-duplex,audiodev=snd0 \
   --smbios "io.systemd.stub.kernel-cmdline-extra=console=ttyS0" \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
+  --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.plymouth-quit.service=$hold_quit" \
   --qmp "$(shot login-screen)" --qmp "$(shot plasma-session)" \
   --qmp "$(shot login-screen-ja)" --qmp "$(shot plasma-session-ja)" \
   --qmp "$(shot login-screen-ar)" --qmp "$(shot plasma-session-ar)" \
@@ -132,6 +142,9 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command "sh $card/language-session.sh ja_JP.UTF-8 jp jp ja" \
   --command "sh $card/language-session.sh ar_SA.UTF-8 ara ara ar" \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
+
+# The boot screen was on the screen when the console came up (the theme's background, the logo and its moon).
+python3 -I "$here/screen-splash.py" "$logs/boot-screen.png"
 
 # The page the guest printed reached the printer on the host: a file of the job, not empty.
 { echo; echo "Printed on the virtual printer (ippeveprinter):"; echo '```'; ls -l "$sb/printed"; echo '```'; } >> "$summary"

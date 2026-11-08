@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Nyra
+Description=The Nyra logo and a loading ring, without text
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/nyra
+ScriptFile=/usr/share/plymouth/themes/nyra/nyra.script

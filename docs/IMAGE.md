@@ -130,6 +130,42 @@ that a shutdown hangs the console up first) turns that conflict into dropping SD
 boot transaction: without the mask SDDM does not start at boot. The other consoles still get a login
 prompt when a user switches to them.
 
+## Boot screen
+
+The desktop shows the Nyra logo and a loading ring, with no text, from the moment the system's own
+services start until the login screen, and again at shutdown. It is a Plymouth theme, `nyra`
+(`/usr/share/plymouth/themes/nyra`): a script theme that draws the logo (white, the moon in the accent
+colour), a faint ring and the arc that turns on the dark background of the boot design. Every size is a
+share of the screen's shorter side, so it scales to any resolution. The ring moves 20 steps a second and
+only the small arc image is turned each time, which keeps it light on a machine with software rendering.
+The drawings are in `image/plymouth` (`make-assets.sh` renders the committed PNG files from them; the logo
+is not under the GPL, see `image/plymouth/README.md`).
+
+- `plymouth` and `plymouth-label` are in the image. The label package is needed: `plymouthd` crashes as
+  soon as it runs a script theme without it.
+- The theme is the default one: the Containerfile sets it in Debian's `plymouthd.defaults` in `/usr`, as
+  `/etc/plymouth/plymouthd.conf` is the user's. It also sets `DeviceTimeout=30` (default 8): plymouth shows text
+  when udev has not finished with the graphics device by then, which an emulated aarch64 machine does not.
+- Hand-over to the login screen: `plymouth-quit.service` quits with `--retain-splash`, so the last frame
+  stays until KWin draws the greeter, and `sddm.service` starts after `plymouth-quit.service`, because
+  KWin cannot take the display while plymouth holds it.
+- Esc shows the boot messages at any time (plymouth's own key), and a boot that stops in the rescue or
+  emergency shell ends the boot screen first (systemd's units do that).
+
+**What the desktop layer cannot do.** The initramfs and the kernel command line are the base's. So:
+
+- the screen starts after the switch to the real root file system, not in the initramfs: the disk
+  password prompt of the initramfs and the first seconds of the boot have no boot screen;
+- plymouth shows its theme only when the command line has `splash`, and the sealed command line has not
+  (it needs the base's change, NyraOS/nyra-base#218, which also adds `quiet` and the firmware-stage logo).
+  Without it plymouth runs, but shows the boot messages as before. The VM test adds `splash` in its own
+  add-on;
+- a serial console makes plymouth keep its text theme: a VM needs `plymouth.ignore-serial-consoles`, a
+  machine with a screen and no serial console does not.
+
+The theme has no prompt of its own: a program that asks for a password in the running system while the
+boot screen is up would not show the question. Nothing in the desktop does; Esc shows the text.
+
 ## Languages
 
 The image has no language of its own: nothing in `/usr` or `/etc` sets `LANG`, the keyboard layout or the
