@@ -106,9 +106,9 @@ clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 # The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
 # so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
-# for, then waits 4 s: once plymouth quits it lets go of the display, which goes blank. The getty and SDDM
+# for on the serial port itself (plymouth redirects /dev/console), then waits 4 s: once plymouth quits it lets go of the display, which goes blank. The getty and SDDM
 # start after plymouth-quit, so they wait too.
-hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'echo NYRA-SHOT-boot-screen >/dev/console; sleep 4\''
+hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'echo NYRA-SHOT-boot-screen >/dev/ttyS0; sleep 4\''
 
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout 300 \
   --qemu=-device --qemu=virtio-vga --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
