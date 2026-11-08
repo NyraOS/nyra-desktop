@@ -92,7 +92,7 @@ image without and three with the change below, on a busy host):
   `{pipewire,pipewire-pulse}.socket.d` get `ConditionUser=!sddm`, so those units do not start for the
   greeter's user; every other user gets sound as before. The base's updates, signatures, firewall and
   TPM unlock are not touched. The login screen has three processes and two user sockets fewer, and the
-  active units go from 203-205 to 203 (system and the greeter's user included).
+  active units were 203 in the VM run that measured this change (system and the greeter's user included); the CI boot job counts 212, after later packages.
 - **The time.** To the greeter's first window: 42, 45 and 135 s after the kernel started without the
   change (userspace 19, 23 and 63 s), 44, 59 and 101 s with it (21, 30 and 50 s). The spread is the
   host, not the image (the runs were on a VPS shared with other jobs), and the change is not visible in
@@ -107,7 +107,7 @@ image without and three with the change below, on a busy host):
 The VM test (`tests/vm/plasma.sh`) prints the same numbers in every run (`systemd-analyze time` and
 `blame`) and fails when: the greeter's first window takes more than 240 s (almost twice the slowest
 healthy run of a busy host; it catches a hang or a start that doubled, not 10 s), 250 or more units are
-active (203 now), the user `sddm` runs PipeWire or WirePlumber, or a NetworkManager, ModemManager,
+active (212 in CI now), the user `sddm` runs PipeWire or WirePlumber, or a NetworkManager, ModemManager,
 Bluetooth or Avahi unit is loaded. The 10 s itself cannot be a CI check: a runner's VM and its noise are
 bigger than the target.
 
