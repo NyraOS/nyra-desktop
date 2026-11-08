@@ -125,7 +125,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
-  --command 'ls /usr/lib/*-linux-gnu/plymouth/ | head -30; plymouth --version; grep -a -i -E "theme|plugin|script|splash|load|fail|error|fall|renderer|device|serial" /run/plymouth-debug.log | grep -a -v "escape character" | cut -c1-230 | head -80; true' \
+  --command 'sed -n "/Timeout elapsed/,\$p" /run/plymouth-debug.log | grep -a -v -E "escape character|input|connection is from" | cut -c1-200 | head -60; udevadm info /dev/dri/card0 | head -20; udevadm info --query=property --name=/dev/dri/card0 | grep -E "TAGS|USEC_INITIALIZED"; true' \
   --command 'uname -m; test "$(uname -m)" = aarch64' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
