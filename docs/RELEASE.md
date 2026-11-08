@@ -182,7 +182,7 @@ both jobs.
   whether "go back to the previous version" may offer it (`offered_rollback`); retractions, failed versions
   and versions gone back from are matched by digest, not version; and the last accepted sheet is kept per
   `repository:channel`, so the desktop's sheets start their own sequence. Going back to the base deployment
-  stays possible, and the base deployment then follows the base's channel again.
+  stays possible only when the base version is at least the desktop's `version_floor` (otherwise the floor refuses it), and the base deployment then follows the base's channel again.
 
 ## arm64 publishing
 
