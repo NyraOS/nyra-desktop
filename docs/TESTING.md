@@ -244,6 +244,37 @@ image; emulation cannot keep up with the rasteriser. Nothing in the image is cha
 sets no rendering option: the screenshots are taken of the rendering users get, and the test needs no quiet
 CPU.
 
+#### The login screen's journal, and the greeter that sometimes does not start
+
+Both boot jobs keep the journal of the login screen's parts (SDDM, its helper, the greeter, KWin, plymouth,
+logind and PAM; the last 600 lines) as `guest-journal.log` in the `desktop-boot` and `desktop-boot-arm64`
+artifacts. The test console prints it after the wait for the greeter and again at the end (the commands run
+whether or not the ones before them passed, so a failed run has it), and `tests/vm/extract-journal.sh`
+copies it out of the serial log. The last line of each dump counts the `sddm-helper exited with` lines.
+
+What the lines mean:
+
+- `sddm-helper exited with 255`, with `Greeter stopped. HelperExitStatus(255)`: the greeter was stopped by a
+  signal. The test does that itself when it restarts `sddm.service` for the autologin. It appears once in
+  every run and is not a failure.
+- `sddm-helper exited with 2` (`HELPER_SESSION_ERROR`): SDDM's helper could not start the greeter's session.
+  Here the journal shows `Wayland socket watcher timed out` 15 s after `Starting Wayland process
+  "kwin_wayland ..."`: SDDM waits 15 s for KWin's socket (the time is fixed in SDDM, not a setting) and
+  gives up, while KWin, still starting, opened `wayland-0` 1 s later. The next start of the greeter then
+  finds that socket, but KWin was stopped, so the greeter gets `Connection refused`, ends, and SDDM does not
+  start it again: the greeter never shows.
+
+Measured on the arm64 job (emulated, GitHub's runners), 5 runs of each pin: the time from KWin's start to its
+socket was 10.0 to 16.6 s with the 2026.11.764 base (13.3 on average) and 10.6 to 14.1 s with the base
+before it (11.5 on average). One run in five on the new pin ended in `exited with 2` and a greeter that
+never started; none of the five on the old pin did. The x86_64 job, under KVM, has KWin's socket 0.4 s after
+its start on both pins. So the failure is a race between SDDM's 15 s and an emulated KWin; a base that is
+about 2 s slower to start KWin under emulation (from 5 runs each, which is not enough to tell the kernel from
+the other changed packages) makes it likelier. It needs a start more than 15 s slow to happen: on a machine
+with a GPU or under KVM, KWin takes well under a second, so real hardware and x86_64 are not at risk unless
+the machine is badly overloaded at the first start. Nothing in the image is changed for it; a red arm64 boot
+job with `Wayland socket watcher timed out` in its journal is this race and is run again.
+
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of
