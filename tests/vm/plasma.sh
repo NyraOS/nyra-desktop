@@ -103,6 +103,12 @@ card=/run/media/nyratest/NYRASD
 # What ffmpeg's decoder must make of tests/vm/fixtures/h264.mp4: 10 frames of 128x96, and their SHA-256
 # as raw yuv420p (the H.264 decoder is bit-exact, so it does not depend on the ffmpeg version).
 clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
+# The journal of the login screen's parts, for the artifacts (tests/vm/extract-journal.sh): SDDM and its
+# helper, the greeter, KWin, plymouth, logind and PAM, with the monotonic time; the last 600 lines, each cut
+# to 300 characters, so that it fits the serial log. It succeeds always: the commands after the greeter's
+# wait run whether or not the wait did, so the journal of a greeter that did not start is kept. The last
+# line counts the helper's exits in the lines above it, the sign of a greeter that died or never came up.
+journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; o="$(journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300)"; echo "$o"; echo "sddm-helper exited with: $(echo "$o" | grep -c "Auth: sddm-helper exited wit[h]") lines above"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 # The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
 # so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
@@ -110,6 +116,7 @@ shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filena
 # start after plymouth-quit, so they wait too.
 hold_quit=$'[Service]\nExecStartPre=/bin/sh -c \'echo NYRA-SHOT-boot-screen >/dev/ttyS0; sleep 4\''
 
+vm=0
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout 300 \
   --qemu=-device --qemu=virtio-vga --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
@@ -129,6 +136,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command 's="$(systemctl is-system-running --wait)"; echo "system: $s"; systemctl --no-pager --failed; test "$s" = running' \
   --command 's="$(systemctl show getty@tty1.service -p LoadState --value)"; echo "getty@tty1: $s"; test "$s" = masked' \
   --command "systemctl is-active sddm.service && $wait_for '$greeter' && ps -o user=,rss=,args= -u sddm && sleep 30 && echo NYRA-SHOT-''login-screen && sleep 3" \
+  --command "$journal greeter" \
   --command 't="$(journalctl -b -o short-monotonic -t sddm-greeter-qt6 | sed -n "s/^\[ *\([0-9]*\)\..*Adding view for.*/\1/p" | head -1)"; n="$(systemctl list-units --all --state=active --no-legend --plain | wc -l)"; echo "boot time: the login screen at ${t}s after the kernel started; $n active units"; systemd-analyze time; systemd-analyze blame --no-pager | grep -v "\.device" | head -10; test -n "$t" && test "$t" -lt 240 && test "$n" -lt 250 && ! pgrep -u sddm -x "pipewire|wireplumber|pipewire-pulse" && ! systemctl list-units --all --no-legend --plain | awk '"'"'$2 == "loaded"'"'"' | grep -E "^(NetworkManager|ModemManager|bluetooth|avahi)"' \
   --command 'systemctl show sddm.service -p MemoryCurrent; systemctl show user-$(id -u sddm).slice -p MemoryCurrent; systemctl is-enabled accounts-daemon.service; systemctl --no-pager list-units --type=service --state=running --no-legend --plain | cut -d" " -f1' \
   --command "useradd -m -s /bin/bash nyratest && install -d -o nyratest -g nyratest ~nyratest/.config && printf '$automount' > ~nyratest/.config/kded_device_automounterrc && chown nyratest: ~nyratest/.config/kded_device_automounterrc && mkdir -p /etc/sddm.conf.d && printf '$autologin' > /etc/sddm.conf.d/99-nyra-test.conf && systemctl restart sddm.service && $wait_for '$session' && loginctl" \
@@ -141,7 +149,12 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command "sh $card/languages.sh" \
   --command "sh $card/language-session.sh ja_JP.UTF-8 jp jp ja" \
   --command "sh $card/language-session.sh ar_SA.UTF-8 ara ara ar" \
-  --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
+  --command "$journal end" \
+  --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"' || vm=$?
+
+# The journal is kept whether or not the run passed; the failure ends the script after it.
+"$here/extract-journal.sh" "$logs/serial-plasma.log" "$logs/guest-journal.log"
+[ "$vm" = 0 ] || exit "$vm"
 
 # The boot screen was on the screen when the console came up (the theme's background, the logo and its moon).
 python3 -I "$here/screen-splash.py" "$logs/boot-screen.png"
