@@ -81,6 +81,12 @@ poll='p() { end=$((SECONDS+210)); while [ $SECONDS -lt $end ]; do if eval "$1"; 
 greeter='pgrep -u sddm -f "^/usr/bin/sddm-greeter-qt6 " >/dev/null && pgrep -u sddm -x kwin_wayland >/dev/null && journalctl -b -q -t sddm-greeter-qt6 | grep -q "Adding view for"'
 session='s="$(loginctl show-user nyratest -p Display --value 2>/dev/null)" && [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value)" = wayland ] && [ "$(loginctl show-session "$s" -p Active --value)" = yes ] && pgrep -u nyratest -x plasmashell >/dev/null'
 autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
+# The journal of the login screen's parts, for the artifacts (tests/vm/extract-journal.sh): SDDM and its
+# helper, the greeter, KWin, plymouth, logind and PAM, with the monotonic time; the last 600 lines, each cut
+# to 300 characters, so that it fits the serial log. It succeeds always: the commands after the greeter's
+# wait run whether or not the wait did, so the journal of a greeter that did not start is kept. The last
+# line counts the helper's exits, the sign of a greeter that died or never came up.
+journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300; echo "sddm-helper exited with: $(journalctl -b --no-pager | grep -c "sddm-helper exited with") lines"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 # The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
 # so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
@@ -101,6 +107,7 @@ series='series() { echo NYRA-WAKE-$1-$2; for i in $(seq $3 $4); do ps -eLo tid=,
 shots=5  # per command; two commands (and two wakes) for each of the screens
 args=(--command "$series")
 for _ in $(seq "$polls"); do args+=(--command "$poll '$greeter'"); done
+args+=(--command "$journal greeter")
 args+=(--command "$greeter && ps -o user=,rss=,args= -u sddm")
 args+=(--command "series login a 1 $shots")
 args+=(--command "series login b $((shots+1)) $((2*shots))")
@@ -116,6 +123,7 @@ for s in login session; do
   for i in $(seq $((2*shots))); do shot_args+=(--qmp "$(shot "$s-$i")"); done
 done
 
+vm=0
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout "$boot_timeout" \
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
@@ -133,11 +141,15 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   --command 'systemctl is-active sddm.service' \
   "${args[@]}" \
   --command 'systemctl show sddm.service -p MemoryCurrent; systemctl show user-$(id -u sddm).slice -p MemoryCurrent; systemctl --no-pager list-units --type=service --state=running --no-legend --plain | cut -d" " -f1' \
-  --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"'
+  --command "$journal end" \
+  --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"' || vm=$?
+
+# The journal is kept whether or not the run passed, and the failure is reported after the checks below.
+"$here/extract-journal.sh" "$logs/serial-plasma-arm64.log" "$logs/guest-journal.log"
 
 # The screenshots show UI: the greeter, then the desktop (the first of each series that does; the job fails
 # when none does, after both are checked so that a log shows both), and the boot screen shows.
-rc=0
+rc="$vm"
 # The boot screen was on the screen when the console came up (the theme's background, the logo and its moon).
 python3 -I "$here/screen-splash.py" "$logs/boot-screen.png" || rc=1
 for s in login session; do
