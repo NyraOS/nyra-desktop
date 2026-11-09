@@ -18,9 +18,9 @@
     {
       "type": "deb",
       "name": "apparmor",
-      "version": "5.0.2-5",
+      "version": "4.1.8-3",
       "architecture": "amd64",
-      "size": 2210816
+      "size": 3211264
     },
     {
       "type": "deb",
@@ -39,9 +39,9 @@
     {
       "type": "deb",
       "name": "bash",
-      "version": "5.3-4+b1",
+      "version": "5.3-4",
       "architecture": "amd64",
-      "size": 7484416
+      "size": 7483392
     },
     {
       "type": "deb",
@@ -74,9 +74,9 @@
     {
       "type": "deb",
       "name": "coreutils",
-      "version": "9.12-0.3",
+      "version": "9.10-1",
       "architecture": "amd64",
-      "size": 20225024
+      "size": 18425856
     },
     {
       "type": "deb",
@@ -214,28 +214,28 @@
     {
       "type": "deb",
       "name": "dracut",
-      "version": "112-8",
+      "version": "112-7",
       "architecture": "all",
       "size": 48128
     },
     {
       "type": "deb",
       "name": "dracut-core",
-      "version": "112-8",
+      "version": "112-7",
       "architecture": "amd64",
       "size": 1354752
     },
     {
       "type": "deb",
       "name": "dracut-install",
-      "version": "112-8",
+      "version": "112-7",
       "architecture": "amd64",
       "size": 129024
     },
     {
       "type": "deb",
       "name": "e2fsprogs",
-      "version": "1.47.4-1+b3",
+      "version": "1.47.4-1+b2",
       "architecture": "amd64",
       "size": 1597440
     },
@@ -445,23 +445,23 @@
     {
       "type": "deb",
       "name": "libapparmor1",
-      "version": "5.0.2-5",
+      "version": "4.1.8-3",
       "architecture": "amd64",
       "size": 114688
     },
     {
       "type": "deb",
       "name": "libappstream5",
-      "version": "1.2.2-1",
+      "version": "1.2.1-1",
       "architecture": "amd64",
-      "size": 896000
+      "size": 890880
     },
     {
       "type": "deb",
       "name": "libarchive13t64",
-      "version": "3.8.11-1",
+      "version": "3.8.10-1",
       "architecture": "amd64",
-      "size": 989184
+      "size": 935936
     },
     {
       "type": "deb",
@@ -501,9 +501,9 @@
     {
       "type": "deb",
       "name": "libaudit1",
-      "version": "1:4.2.1-1+b1",
+      "version": "1:4.2.1-1",
       "architecture": "amd64",
-      "size": 216064
+      "size": 215040
     },
     {
       "type": "deb",
@@ -704,14 +704,14 @@
     {
       "type": "deb",
       "name": "libcap2",
-      "version": "1:2.78-1+b2",
+      "version": "1:2.78-1+b1",
       "architecture": "amd64",
       "size": 97280
     },
     {
       "type": "deb",
       "name": "libcap2-bin",
-      "version": "1:2.78-1+b2",
+      "version": "1:2.78-1+b1",
       "architecture": "amd64",
       "size": 137216
     },
@@ -725,7 +725,7 @@
     {
       "type": "deb",
       "name": "libcom-err2",
-      "version": "1.47.4-1+b3",
+      "version": "1.47.4-1+b2",
       "architecture": "amd64",
       "size": 60416
     },
@@ -781,9 +781,9 @@
     {
       "type": "deb",
       "name": "libdb5.3t64",
-      "version": "5.3.28+dfsg2-12",
+      "version": "5.3.28+dfsg2-11+b1",
       "architecture": "amd64",
-      "size": 1947648
+      "size": 1903616
     },
     {
       "type": "deb",
@@ -858,14 +858,14 @@
     {
       "type": "deb",
       "name": "libexpat1",
-      "version": "2.10.0-1",
+      "version": "2.9.0-1",
       "architecture": "amd64",
-      "size": 468992
+      "size": 467968
     },
     {
       "type": "deb",
       "name": "libext2fs2t64",
-      "version": "1.47.4-1+b3",
+      "version": "1.47.4-1+b2",
       "architecture": "amd64",
       "size": 593920
     },
@@ -1019,9 +1019,9 @@
     {
       "type": "deb",
       "name": "libharfbuzz0b",
-      "version": "14.4.0+ds-1",
+      "version": "12.3.2-2+b2",
       "architecture": "amd64",
-      "size": 1589248
+      "size": 1485824
     },
     {
       "type": "deb",
@@ -1306,23 +1306,23 @@
     {
       "type": "deb",
       "name": "libnss-myhostname",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 297984
+      "size": 296960
     },
     {
       "type": "deb",
       "name": "libnss-resolve",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 445440
+      "size": 444416
     },
     {
       "type": "deb",
       "name": "libnss3",
-      "version": "2:3.132-1",
+      "version": "2:3.131.1-1",
       "architecture": "amd64",
-      "size": 5087232
+      "size": 5095424
     },
     {
       "type": "deb",
@@ -1334,9 +1334,9 @@
     {
       "type": "deb",
       "name": "libostree-1-1",
-      "version": "2026.6-1",
+      "version": "2026.4-1",
       "architecture": "amd64",
-      "size": 1130496
+      "size": 1056768
     },
     {
       "type": "deb",
@@ -1369,9 +1369,9 @@
     {
       "type": "deb",
       "name": "libpam-systemd",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 869376
+      "size": 868352
     },
     {
       "type": "deb",
@@ -1411,7 +1411,7 @@
     {
       "type": "deb",
       "name": "libpcre2-8-0",
-      "version": "10.49-1",
+      "version": "10.48-3.1",
       "architecture": "amd64",
       "size": 813056
     },
@@ -1446,16 +1446,16 @@
     {
       "type": "deb",
       "name": "libpopt0",
-      "version": "1.19+dfsg-3",
+      "version": "1.19+dfsg-2+b2",
       "architecture": "amd64",
-      "size": 252928
+      "size": 250880
     },
     {
       "type": "deb",
       "name": "libproc2-1",
-      "version": "2:4.0.7-1.1",
+      "version": "2:4.0.7-1",
       "architecture": "amd64",
-      "size": 259072
+      "size": 258048
     },
     {
       "type": "deb",
@@ -1474,16 +1474,16 @@
     {
       "type": "deb",
       "name": "libpython3.14-minimal",
-      "version": "3.14.10-1",
+      "version": "3.14.9-1",
       "architecture": "amd64",
-      "size": 5818368
+      "size": 5817344
     },
     {
       "type": "deb",
       "name": "libpython3.14-stdlib",
-      "version": "3.14.10-1",
+      "version": "3.14.9-1",
       "architecture": "amd64",
-      "size": 10568704
+      "size": 10560512
     },
     {
       "type": "deb",
@@ -1495,9 +1495,9 @@
     {
       "type": "deb",
       "name": "librsvg2-2",
-      "version": "2.63.4+dfsg-4",
+      "version": "2.63.3+dfsg-1",
       "architecture": "amd64",
-      "size": 6326272
+      "size": 6288384
     },
     {
       "type": "deb",
@@ -1537,7 +1537,7 @@
     {
       "type": "deb",
       "name": "libsemanage2",
-      "version": "3.11-1+b2",
+      "version": "3.11-1+b1",
       "architecture": "amd64",
       "size": 317440
     },
@@ -1565,14 +1565,14 @@
     {
       "type": "deb",
       "name": "libsqlite3-0",
-      "version": "3.54.1-2",
+      "version": "3.53.4-2",
       "architecture": "amd64",
-      "size": 2057216
+      "size": 1973248
     },
     {
       "type": "deb",
       "name": "libss2",
-      "version": "1.47.4-1+b3",
+      "version": "1.47.4-1+b2",
       "architecture": "amd64",
       "size": 76800
     },
@@ -1614,16 +1614,16 @@
     {
       "type": "deb",
       "name": "libsystemd-shared",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 9311232
+      "size": 9297920
     },
     {
       "type": "deb",
       "name": "libsystemd0",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 1419264
+      "size": 1414144
     },
     {
       "type": "deb",
@@ -1684,93 +1684,93 @@
     {
       "type": "deb",
       "name": "libtss2-esys-3.0.2-0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 744448
+      "size": 743424
     },
     {
       "type": "deb",
       "name": "libtss2-fapi1t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 1244160
+      "size": 1243136
     },
     {
       "type": "deb",
       "name": "libtss2-mu-4.0.1-0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 404480
+      "size": 403456
     },
     {
       "type": "deb",
       "name": "libtss2-rc0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 101376
+      "size": 100352
     },
     {
       "type": "deb",
       "name": "libtss2-sys1t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 220160
+      "size": 219136
     },
     {
       "type": "deb",
       "name": "libtss2-tcti-cmd0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 96256
+      "size": 95232
     },
     {
       "type": "deb",
       "name": "libtss2-tcti-device0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 96256
+      "size": 95232
     },
     {
       "type": "deb",
       "name": "libtss2-tcti-libtpms0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 96256
+      "size": 95232
     },
     {
       "type": "deb",
       "name": "libtss2-tcti-mssim0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 100352
+      "size": 99328
     },
     {
       "type": "deb",
       "name": "libtss2-tcti-spi-helper0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 96256
+      "size": 95232
     },
     {
       "type": "deb",
       "name": "libtss2-tcti-swtpm0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 100352
+      "size": 99328
     },
     {
       "type": "deb",
       "name": "libtss2-tctildr0t64",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "amd64",
-      "size": 96256
+      "size": 95232
     },
     {
       "type": "deb",
       "name": "libudev1",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 387072
+      "size": 386048
     },
     {
       "type": "deb",
@@ -1831,16 +1831,16 @@
     {
       "type": "deb",
       "name": "libx11-6",
-      "version": "2:1.8.14-1",
+      "version": "2:1.8.13-1",
       "architecture": "amd64",
-      "size": 1726464
+      "size": 1689600
     },
     {
       "type": "deb",
       "name": "libx11-data",
-      "version": "2:1.8.14-1",
+      "version": "2:1.8.13-1",
       "architecture": "all",
-      "size": 1618944
+      "size": 1616896
     },
     {
       "type": "deb",
@@ -1901,9 +1901,9 @@
     {
       "type": "deb",
       "name": "libxrender1",
-      "version": "1:0.9.13-1",
+      "version": "1:0.9.12-1+b2",
       "architecture": "amd64",
-      "size": 73728
+      "size": 74752
     },
     {
       "type": "deb",
@@ -1935,52 +1935,45 @@
     },
     {
       "type": "deb",
-      "name": "linux-base-7.3.3+deb14-amd64",
-      "version": "7.3.3-1",
+      "name": "linux-base-7.2.12+deb14-amd64",
+      "version": "7.2.12-1",
       "architecture": "amd64",
-      "size": 945152
+      "size": 980992
     },
     {
       "type": "deb",
       "name": "linux-base-amd64",
-      "version": "7.3.3-1",
+      "version": "7.2.12-1",
       "architecture": "amd64",
-      "size": 11264
+      "size": 9216
     },
     {
       "type": "deb",
-      "name": "linux-binary-7.3.3+deb14-amd64",
-      "version": "7.3.3-1",
+      "name": "linux-binary-7.2.12+deb14-amd64",
+      "version": "7.2.12-1",
       "architecture": "amd64",
-      "size": 14749696
+      "size": 14565376
     },
     {
       "type": "deb",
-      "name": "linux-image-7.3.3+deb14-amd64",
-      "version": "7.3.3-1",
+      "name": "linux-image-7.2.12+deb14-amd64",
+      "version": "7.2.12-1",
       "architecture": "amd64",
       "size": 15360
     },
     {
       "type": "deb",
       "name": "linux-image-amd64",
-      "version": "7.3.3-1",
+      "version": "7.2.12-1",
       "architecture": "amd64",
-      "size": 15360
+      "size": 16384
     },
     {
       "type": "deb",
-      "name": "linux-modules-7.3.3+deb14-amd64",
-      "version": "7.3.3-1",
+      "name": "linux-modules-7.2.12+deb14-amd64",
+      "version": "7.2.12-1",
       "architecture": "amd64",
-      "size": 105615360
-    },
-    {
-      "type": "deb",
-      "name": "linux-modules-amd64",
-      "version": "7.3.3-1",
-      "architecture": "amd64",
-      "size": 8192
+      "size": 112214016
     },
     {
       "type": "deb",
@@ -1999,7 +1992,7 @@
     {
       "type": "deb",
       "name": "logsave",
-      "version": "1.47.4-1+b3",
+      "version": "1.47.4-1+b2",
       "architecture": "amd64",
       "size": 55296
     },
@@ -2069,28 +2062,28 @@
     {
       "type": "deb",
       "name": "openssh-client",
-      "version": "1:10.6p2-1",
+      "version": "1:10.6p1-1",
       "architecture": "amd64",
       "size": 3697664
     },
     {
       "type": "deb",
       "name": "openssh-common",
-      "version": "1:10.6p2-1",
+      "version": "1:10.6p1-1",
       "architecture": "amd64",
-      "size": 1662976
+      "size": 1661952
     },
     {
       "type": "deb",
       "name": "openssh-server",
-      "version": "1:10.6p2-1",
+      "version": "1:10.6p1-1",
       "architecture": "amd64",
       "size": 3701760
     },
     {
       "type": "deb",
       "name": "openssh-sftp-server",
-      "version": "1:10.6p2-1",
+      "version": "1:10.6p1-1",
       "architecture": "amd64",
       "size": 193536
     },
@@ -2111,9 +2104,9 @@
     {
       "type": "deb",
       "name": "ostree",
-      "version": "2026.6-1",
+      "version": "2026.4-1",
       "architecture": "amd64",
-      "size": 577536
+      "size": 565248
     },
     {
       "type": "deb",
@@ -2160,9 +2153,9 @@
     {
       "type": "deb",
       "name": "procps",
-      "version": "2:4.0.7-1.1",
+      "version": "2:4.0.7-1",
       "architecture": "amd64",
-      "size": 2756608
+      "size": 2755584
     },
     {
       "type": "deb",
@@ -2202,16 +2195,16 @@
     {
       "type": "deb",
       "name": "python3.14",
-      "version": "3.14.10-1",
+      "version": "3.14.9-1",
       "architecture": "amd64",
-      "size": 979968
+      "size": 975872
     },
     {
       "type": "deb",
       "name": "python3.14-minimal",
-      "version": "3.14.10-1",
+      "version": "3.14.9-1",
       "architecture": "amd64",
-      "size": 8413184
+      "size": 8388608
     },
     {
       "type": "deb",
@@ -2307,72 +2300,72 @@
     {
       "type": "deb",
       "name": "systemd",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 11674624
+      "size": 11660288
     },
     {
       "type": "deb",
       "name": "systemd-boot",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 197632
+      "size": 196608
     },
     {
       "type": "deb",
       "name": "systemd-boot-efi",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 378880
+      "size": 377856
     },
     {
       "type": "deb",
       "name": "systemd-boot-efi-amd64-signed",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
       "size": 181248
     },
     {
       "type": "deb",
       "name": "systemd-boot-tools",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 299008
+      "size": 297984
     },
     {
       "type": "deb",
       "name": "systemd-cryptsetup",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 626688
+      "size": 625664
     },
     {
       "type": "deb",
       "name": "systemd-resolved",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 920576
+      "size": 919552
     },
     {
       "type": "deb",
       "name": "systemd-sysv",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 78848
+      "size": 77824
     },
     {
       "type": "deb",
       "name": "systemd-tpm",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 549888
+      "size": 548864
     },
     {
       "type": "deb",
       "name": "systemd-ukify",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "all",
-      "size": 248832
+      "size": 246784
     },
     {
       "type": "deb",
@@ -2384,16 +2377,16 @@
     {
       "type": "deb",
       "name": "tar",
-      "version": "1.35+dfsg-7",
+      "version": "1.35+dfsg-6",
       "architecture": "amd64",
       "size": 3175424
     },
     {
       "type": "deb",
       "name": "tpm-udev",
-      "version": "4.2.1-1",
+      "version": "4.2.0-2",
       "architecture": "all",
-      "size": 104448
+      "size": 103424
     },
     {
       "type": "deb",
@@ -2405,9 +2398,9 @@
     {
       "type": "deb",
       "name": "tzdata",
-      "version": "2026f-1",
+      "version": "2026e-1",
       "architecture": "all",
-      "size": 1387520
+      "size": 1385472
     },
     {
       "type": "deb",
@@ -2419,9 +2412,9 @@
     {
       "type": "deb",
       "name": "udev",
-      "version": "262.2-1",
+      "version": "262.1-1",
       "architecture": "amd64",
-      "size": 11016192
+      "size": 11014144
     },
     {
       "type": "deb",
