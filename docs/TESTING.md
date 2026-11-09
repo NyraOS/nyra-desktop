@@ -250,7 +250,7 @@ Both boot jobs keep the journal of the login screen's parts (SDDM, its helper, t
 logind and PAM; the last 600 lines) as `guest-journal.log` in the `desktop-boot` and `desktop-boot-arm64`
 artifacts. The test console prints it after the wait for the greeter and again at the end (the commands run
 whether or not the ones before them passed, so a failed run has it), and `tests/vm/extract-journal.sh`
-copies it out of the serial log. The last line of each dump counts SDDM's `Auth: sddm-helper exited with` lines (the 255 ones included; the pattern is written so that the typed command does not match itself).
+copies it out of the serial log. The last line of each dump counts SDDM's `Auth: sddm-helper exited with` lines among the lines above it (the 255 ones included).
 
 What the lines mean:
 
