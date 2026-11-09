@@ -250,13 +250,13 @@ Both boot jobs keep the journal of the login screen's parts (SDDM, its helper, t
 logind and PAM; the last 600 lines) as `guest-journal.log` in the `desktop-boot` and `desktop-boot-arm64`
 artifacts. The test console prints it after the wait for the greeter and again at the end (the commands run
 whether or not the ones before them passed, so a failed run has it), and `tests/vm/extract-journal.sh`
-copies it out of the serial log. The last line of each dump counts the `sddm-helper exited with` lines.
+copies it out of the serial log. The last line of each dump counts SDDM's `Auth: sddm-helper exited with` lines (the 255 ones included; the pattern is written so that the typed command does not match itself).
 
 What the lines mean:
 
 - `sddm-helper exited with 255`, with `Greeter stopped. HelperExitStatus(255)`: the greeter was stopped by a
-  signal. The test does that itself when it restarts `sddm.service` for the autologin. It appears once in
-  every run and is not a failure.
+  signal. The test does that itself each time it restarts `sddm.service` (the autologin, and on x86_64 the
+  two language checks): once in the arm64 run, four times in the x86_64 run. It is not a failure.
 - `sddm-helper exited with 2` (`HELPER_SESSION_ERROR`): SDDM's helper could not start the greeter's session.
   Here the journal shows `Wayland socket watcher timed out` 15 s after `Starting Wayland process
   "kwin_wayland ..."`: SDDM waits 15 s for KWin's socket (the time is fixed in SDDM, not a setting) and

@@ -86,7 +86,7 @@ autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 # to 300 characters, so that it fits the serial log. It succeeds always: the commands after the greeter's
 # wait run whether or not the wait did, so the journal of a greeter that did not start is kept. The last
 # line counts the helper's exits, the sign of a greeter that died or never came up.
-journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300; echo "sddm-helper exited with: $(journalctl -b --no-pager | grep -c "sddm-helper exited with") lines"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
+journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300; echo "sddm-helper exited with: $(journalctl -b --no-pager | grep -c "Auth: sddm-helper exited wit[h]") lines"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 # The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
 # so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
