@@ -127,13 +127,14 @@ vm=0
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout "$boot_timeout" \
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
+  --qemu=-smp --qemu=4 \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
   --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.plymouth-quit.service=$hold_quit" \
   --qmp "$(wake login-a 16000 16000)" --qmp "$(wake login-b 20000 12000)" \
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
-  --command 'uname -m; test "$(uname -m)" = aarch64' \
+  --command 'uname -m; nproc; test "$(uname -m)" = aarch64' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
   --command 's="$(systemctl is-system-running --wait)"; echo "system: $s"; systemctl --no-pager --failed; test "$s" = running' \
@@ -142,6 +143,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   "${args[@]}" \
   --command 'systemctl show sddm.service -p MemoryCurrent; systemctl show user-$(id -u sddm).slice -p MemoryCurrent; systemctl --no-pager list-units --type=service --state=running --no-legend --plain | cut -d" " -f1' \
   --command "$journal end" \
+  --command 'echo "NYRA-USER-JOURNAL-BEGIN"; journalctl -b _UID=$(id -u nyratest) -o short-monotonic --no-pager | grep -Ei "powerdevil|dpms|screen|idle|lock|plasmashell|splash|kscreen|output|kwin" | tail -n 120 | cut -c1-250; echo "NYRA-USER-JOURNAL-END"' \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"' || vm=$?
 
 # The journal is kept whether or not the run passed, and the failure is reported after the checks below.
