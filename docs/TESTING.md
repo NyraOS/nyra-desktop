@@ -291,8 +291,8 @@ A second, different red run was seen with the DRM lines in place: the greeter st
 start, greeter screenshot with 1271 edges) and the Plasma session was up, but none of the ten `session-N.png`
 photographs had UI (0 edges in the bottom strip: wallpaper or lock screen). That one is not this race.
 
-The next run on the same change did hit this race: `virtio_gpu` was initialised 28 s in, KWin started at 232.1 s,
-and SDDM gave up at 247.1 s, so the DRM node was there 204 s before KWin started.
+The next run on the same change did hit this race: `virtio_gpu` was initialised 30 s in, KWin started at 232.1 s,
+and SDDM gave up at 247.1 s, so the DRM node was there 202 s before KWin started.
 
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
