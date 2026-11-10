@@ -303,9 +303,10 @@ in one more run SDDM's 15 s still ran out (15.2 s) and the retry, with the machi
 greeter, so the race is not gone, only rarer. The 30 s CPU figures of the log now go up to 120 s (4 vCPUs).
 
 The session screenshots with no UI (the second red run above): all ten `session-N.png` were the same black
-image (3 KB) while `plasmashell` and the session's KWin ran and used the CPU; the journal of the test
-user, which the log now prints at its end (`NYRA-USER-JOURNAL`), has not been seen for such a run yet: it did not
-recur in the 6 runs with 4 vCPUs, so its cause is not known. A black screen, not a dim panel: lowering the 300-edge limit would not have passed it.
+image (3 KB) while `plasmashell` and the session's KWin ran and used the CPU. It is a black screen, not a dim
+panel, so lowering the 300-edge limit would not have passed it. The log now prints the test user's journal
+at its end (`NYRA-USER-JOURNAL`); that failure did not recur in the 6 runs with 4 vCPUs, so no run has
+shown its cause yet.
 
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
