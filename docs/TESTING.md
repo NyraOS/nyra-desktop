@@ -294,6 +294,19 @@ photographs had UI (0 edges in the bottom strip: wallpaper or lock screen). That
 The next run on the same change did hit this race: `virtio_gpu` was initialised 30 s in, KWin started at 232.1 s,
 and SDDM gave up at 247.1 s, so the DRM node was there 202 s before KWin started.
 
+The test gives the emulated guest 4 vCPUs (`-smp 4`; the runner has 4 cores, the harness's default is 2,
+and a later `-smp` wins). This is test only: the image is not changed. With 2 vCPUs the arm64 job failed in 3 of
+the 4 runs of this branch (the greeter race once, the session screenshots below twice), 1 in 5 and 2 in about 8 before
+that. With 4 it passed 6 times in 6 runs (the same run, re-run): the guest reached KWin's start at 173 to 187 s
+instead of 206 to 232 s, and KWin's start-to-socket time was 11.3 to 12.2 s in five runs and 14.6 s in one;
+in one more run SDDM's 15 s still ran out (15.2 s) and the retry, with the machine less busy, started the
+greeter, so the race is not gone, only rarer. The 30 s CPU figures of the log now go up to 120 s (4 vCPUs).
+
+The session screenshots with no UI (the second red run above): all ten `session-N.png` were the same black
+image (3 KB) while `plasmashell` and the session's KWin ran and used the CPU; the journal of the test
+user, which the log now prints at its end (`NYRA-USER-JOURNAL`), did not recur in the 6 runs with 4 vCPUs, so its
+cause is not known. A black screen, not a dim panel: lowering the 300-edge limit would not have passed it.
+
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of

@@ -101,7 +101,7 @@ nolock='[Daemon]\nAutolock=false\nLockOnResume=false\n'
 # prints, because vm-boot.py sends a QMP command once.
 wake() { echo "NYRA-WAKE-$1=>{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"key\",\"data\":{\"down\":true,\"key\":{\"type\":\"qcode\",\"data\":\"shift\"}}},{\"type\":\"key\",\"data\":{\"down\":false,\"key\":{\"type\":\"qcode\",\"data\":\"shift\"}}},{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$2}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$3}}]}}"; }
 # series NAME WAKE FIRST LAST: wake the screen, then NAME-FIRST ... NAME-LAST, one every 30 s, each with the
-# CPU seconds all threads used in that time (the guest has 2 vCPUs: 60 s is full load) and the eight that
+# CPU seconds all threads used in that time (the guest has 4 vCPUs: 120 s is full load) and the eight that
 # used most (the thread names tell the renderer's threads, llvmpipe's rasteriser threads, apart). Under 300 s, what a guest command may take.
 series='series() { echo NYRA-WAKE-$1-$2; for i in $(seq $3 $4); do ps -eLo tid=,cputimes=,pid=,comm= > /tmp/c1; sleep 30; ps -eLo tid=,cputimes=,pid=,comm= > /tmp/c2; echo "cpu in 30 s, all threads: $(awk "NR==FNR {a[\$1]=\$2; next} {s+=\$2-a[\$1]} END {print s+0}" /tmp/c1 /tmp/c2) s; the busiest (seconds, process, thread):"; awk "NR==FNR {a[\$1]=\$2; next} \$2-a[\$1] > 0 {print \$2-a[\$1], \$3, \$4}" /tmp/c1 /tmp/c2 | sort -rn | head -8; echo NYRA-SHOT-$1-$i; sleep 3; done; }'
 shots=5  # per command; two commands (and two wakes) for each of the screens
