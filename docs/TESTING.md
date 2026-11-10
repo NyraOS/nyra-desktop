@@ -275,6 +275,39 @@ with a GPU or under KVM, KWin takes well under a second, so real hardware and x8
 the machine is badly overloaded at the first start. Nothing in the image is changed for it; a red arm64 boot
 job with `Wayland socket watcher timed out` in its journal is this race and is run again.
 
+Is it the DRM device? The hypothesis was that KWin starts before the GPU's device nodes exist, and it is
+not so. The journal dump now also holds the kernel's `drm` lines and the times of `/dev/dri`'s nodes. On
+arm64 (emulated) `virtio_gpu` was initialised, with `card0` and `renderD128` created, 28.7 s after the
+kernel started, and KWin started 208.8 s in: 180 s later. On x86_64 (KVM) it was 3.9 s against 16.3 s.
+KWin's `kwin_core: Failed to open drm node` line, which looks like the cause in a failed run, is also in
+every passing run, at the same place (just before the socket opens): it is KWin's look for a render node
+of its software renderer (llvmpipe has none), not the GPU. Also, `dev-dri-card0.device` is never active
+in the guest (`ActiveEnterTimestampMonotonic=0`), so a `Wants=` and `After=` on it would order nothing.
+Waiting for the DRM device before SDDM would therefore change nothing, and the image is not changed.
+What is left is the race itself: KWin needs 10 to 17 s to open its socket on a guest whose CPUs the
+rest of the boot still keeps busy, against SDDM's fixed 15 s.
+
+A second, different red run was seen with the DRM lines in place: the greeter started (KWin's socket 12.2 s after its
+start, greeter screenshot with 1271 edges) and the Plasma session was up, but none of the ten `session-N.png`
+photographs had UI (0 edges in the bottom strip: wallpaper or lock screen). That one is not this race.
+
+The next run on the same change did hit this race: `virtio_gpu` was initialised 30 s in, KWin started at 232.1 s,
+and SDDM gave up at 247.1 s, so the DRM node was there 202 s before KWin started.
+
+The test gives the emulated guest 4 vCPUs (`-smp 4`; the runner has 4 cores, the harness's default is 2,
+and a later `-smp` wins). This is test only: the image is not changed. With 2 vCPUs the arm64 job failed in 3 of
+the 4 runs of this branch (the greeter race once, the session screenshots below twice), 1 in 5 and 2 in about 8 before
+that. With 4 it passed 6 times in 6 runs (the same run, re-run): the guest reached KWin's start at 173 to 187 s
+instead of 206 to 232 s, and KWin's start-to-socket time was 11.3 to 12.2 s in five runs and 14.6 s in one;
+in one more run SDDM's 15 s still ran out (15.2 s) and the retry, with the machine less busy, started the
+greeter, so the race is not gone, only rarer. The 30 s CPU figures of the log now go up to 120 s (4 vCPUs).
+
+The session screenshots with no UI (the second red run above): all ten `session-N.png` were the same black
+image (3 KB) while `plasmashell` and the session's KWin ran and used the CPU. It is a black screen, not a dim
+panel, so lowering the 300-edge limit would not have passed it. The log now prints the test user's journal
+at its end (`NYRA-USER-JOURNAL`); that failure did not recur in the 6 runs with 4 vCPUs, so no run has
+shown its cause yet.
+
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of

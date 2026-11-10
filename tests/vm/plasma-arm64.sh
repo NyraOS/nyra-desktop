@@ -86,7 +86,7 @@ autologin='[Autologin]\nUser=nyratest\nSession=plasma.desktop\n'
 # to 300 characters, so that it fits the serial log. It succeeds always: the commands after the greeter's
 # wait run whether or not the wait did, so the journal of a greeter that did not start is kept. The last
 # line counts the helper's exits in the lines above it, the sign of a greeter that died or never came up.
-journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; o="$(journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300)"; echo "$o"; echo "sddm-helper exited with: $(echo "$o" | grep -c "Auth: sddm-helper exited wit[h]") lines above"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
+journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; o="$(journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300)"; echo "$o"; echo "drm: kernel lines, then when systemd saw the device nodes (monotonic microseconds)"; journalctl -b -k -o short-monotonic --no-pager | grep -Ei "drm|virtio_gpu|virtio-gpu" | cut -c1-200; systemctl show dev-dri-card0.device dev-dri-renderD128.device -p Id -p ActiveEnterTimestampMonotonic | grep -v "^$"; ls -l --time=birth --time-style=full-iso /dev/dri/ 2>&1; echo "sddm-helper exited with: $(echo "$o" | grep -c "Auth: sddm-helper exited wit[h]") lines above"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 # The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
 # so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
@@ -101,7 +101,7 @@ nolock='[Daemon]\nAutolock=false\nLockOnResume=false\n'
 # prints, because vm-boot.py sends a QMP command once.
 wake() { echo "NYRA-WAKE-$1=>{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"key\",\"data\":{\"down\":true,\"key\":{\"type\":\"qcode\",\"data\":\"shift\"}}},{\"type\":\"key\",\"data\":{\"down\":false,\"key\":{\"type\":\"qcode\",\"data\":\"shift\"}}},{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$2}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$3}}]}}"; }
 # series NAME WAKE FIRST LAST: wake the screen, then NAME-FIRST ... NAME-LAST, one every 30 s, each with the
-# CPU seconds all threads used in that time (the guest has 2 vCPUs: 60 s is full load) and the eight that
+# CPU seconds all threads used in that time (the guest has 4 vCPUs: 120 s is full load) and the eight that
 # used most (the thread names tell the renderer's threads, llvmpipe's rasteriser threads, apart). Under 300 s, what a guest command may take.
 series='series() { echo NYRA-WAKE-$1-$2; for i in $(seq $3 $4); do ps -eLo tid=,cputimes=,pid=,comm= > /tmp/c1; sleep 30; ps -eLo tid=,cputimes=,pid=,comm= > /tmp/c2; echo "cpu in 30 s, all threads: $(awk "NR==FNR {a[\$1]=\$2; next} {s+=\$2-a[\$1]} END {print s+0}" /tmp/c1 /tmp/c2) s; the busiest (seconds, process, thread):"; awk "NR==FNR {a[\$1]=\$2; next} \$2-a[\$1] > 0 {print \$2-a[\$1], \$3, \$4}" /tmp/c1 /tmp/c2 | sort -rn | head -8; echo NYRA-SHOT-$1-$i; sleep 3; done; }'
 shots=5  # per command; two commands (and two wakes) for each of the screens
@@ -127,13 +127,14 @@ vm=0
 python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.raw" --autologin --timeout "$boot_timeout" \
   --qemu=-device --qemu=virtio-gpu-pci --qemu=-device --qemu=qemu-xhci --qemu=-device --qemu=usb-kbd \
   --qemu=-device --qemu=usb-tablet \
+  --qemu=-smp --qemu=4 \
   --smbios "io.systemd.credential:firstboot.locale=en_US.UTF-8" \
   --qmp "$(shot boot-screen)" --credential "systemd.unit-dropin.plymouth-quit.service=$hold_quit" \
   --qmp "$(wake login-a 16000 16000)" --qmp "$(wake login-b 20000 12000)" \
   --qmp "$(wake session-a 12000 20000)" --qmp "$(wake session-b 16000 16000)" "${shot_args[@]}" \
   --log "$logs/serial-plasma-arm64.log" --summary "$summary" \
   --title "Desktop on aarch64: Secure Boot to the login screen, then a Plasma session" \
-  --command 'uname -m; test "$(uname -m)" = aarch64' \
+  --command 'uname -m; nproc; test "$(uname -m)" = aarch64' \
   --command 'mokutil --sb-state; mokutil --sb-state | grep -qx "SecureBoot enabled"' \
   --command 'cat /proc/cmdline; grep -Eq "(^| )composefs=[0-9a-f]{128}( |$)" /proc/cmdline' \
   --command 's="$(systemctl is-system-running --wait)"; echo "system: $s"; systemctl --no-pager --failed; test "$s" = running' \
@@ -142,6 +143,7 @@ python3 -B tools/vm/vm-boot.py --secure-boot "$sb/vars.fd" --disk "$work/disk.ra
   "${args[@]}" \
   --command 'systemctl show sddm.service -p MemoryCurrent; systemctl show user-$(id -u sddm).slice -p MemoryCurrent; systemctl --no-pager list-units --type=service --state=running --no-legend --plain | cut -d" " -f1' \
   --command "$journal end" \
+  --command 'echo "NYRA-USER-JOURNAL-BEGIN"; journalctl -b _UID=$(id -u nyratest) -o short-monotonic --no-pager | grep -Ei "powerdevil|dpms|screen|idle|lock|plasmashell|splash|kscreen|output|kwin" | tail -n 120 | cut -c1-250; echo "NYRA-USER-JOURNAL-END"' \
   --command 'journalctl -b --no-pager -p warning -u sddm.service | tail -20; ! journalctl -b --no-pager | grep -E "KCrash|dumped core|segfault"' || vm=$?
 
 # The journal is kept whether or not the run passed, and the failure is reported after the checks below.
