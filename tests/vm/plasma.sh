@@ -108,7 +108,7 @@ clip_sha256=4726168e93980f0ae6a17bbc7f74817f23ecfb30d5da47f6a4346c29532c729f
 # to 300 characters, so that it fits the serial log. It succeeds always: the commands after the greeter's
 # wait run whether or not the wait did, so the journal of a greeter that did not start is kept. The last
 # line counts the helper's exits in the lines above it, the sign of a greeter that died or never came up.
-journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; o="$(journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300)"; echo "$o"; echo "sddm-helper exited with: $(echo "$o" | grep -c "Auth: sddm-helper exited wit[h]") lines above"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
+journal='j() { echo "NYRA-JOURNAL-BE""GIN $1"; o="$(journalctl -b -o short-monotonic --no-pager | grep -Ei "sddm|kwin|plymouth|greeter|logind|pam_" | tail -n 600 | cut -c1-300)"; echo "$o"; echo "drm: kernel lines, then when systemd saw the device nodes (monotonic microseconds)"; journalctl -b -k -o short-monotonic --no-pager | grep -Ei "drm|virtio_gpu|virtio-gpu" | cut -c1-200; systemctl show dev-dri-card0.device dev-dri-renderD128.device -p Id -p ActiveEnterTimestampMonotonic | grep -v "^$"; ls -l --time=birth --time-style=full-iso /dev/dri/ 2>&1; echo "sddm-helper exited with: $(echo "$o" | grep -c "Auth: sddm-helper exited wit[h]") lines above"; echo "NYRA-JOURNAL-EN""D $1"; true; }; j'
 shot() { echo "NYRA-SHOT-$1=>{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$logs/$1.png\",\"format\":\"png\"}}"; }
 # The boot screen is photographed while plymouth shows it. The console prints nothing once plymouth is up,
 # so plymouth-quit (test only: a drop-in passed as a credential) prints the marker the --qmp trigger waits
