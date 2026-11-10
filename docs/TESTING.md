@@ -287,6 +287,10 @@ Waiting for the DRM device before SDDM would therefore change nothing, and the i
 What is left is the race itself: KWin needs 10 to 17 s to open its socket on a guest whose CPUs the
 rest of the boot still keeps busy, against SDDM's fixed 15 s.
 
+A second, different red run was seen with the DRM lines in place: the greeter started (KWin's socket 12.2 s after its
+start, greeter screenshot with 1271 edges) and the Plasma session was up, but none of the ten `session-N.png`
+photographs had UI (0 edges in the bottom strip: wallpaper or lock screen). That one is not this race.
+
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of
