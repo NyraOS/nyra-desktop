@@ -275,6 +275,18 @@ with a GPU or under KVM, KWin takes well under a second, so real hardware and x8
 the machine is badly overloaded at the first start. Nothing in the image is changed for it; a red arm64 boot
 job with `Wayland socket watcher timed out` in its journal is this race and is run again.
 
+Is it the DRM device? The hypothesis was that KWin starts before the GPU's device nodes exist, and it is
+not so. The journal dump now also holds the kernel's `drm` lines and the times of `/dev/dri`'s nodes. On
+arm64 (emulated) `virtio_gpu` was initialised, with `card0` and `renderD128` created, 28.7 s after the
+kernel started, and KWin started 208.8 s in: 180 s later. On x86_64 (KVM) it was 3.9 s against 16.3 s.
+KWin's `kwin_core: Failed to open drm node` line, which looks like the cause in a failed run, is also in
+every passing run, at the same place (just before the socket opens): it is KWin's look for a render node
+of its software renderer (llvmpipe has none), not the GPU. Also, `dev-dri-card0.device` is never active
+in the guest (`ActiveEnterTimestampMonotonic=0`), so a `Wants=` and `After=` on it would order nothing.
+Waiting for the DRM device before SDDM would therefore change nothing, and the image is not changed.
+What is left is the race itself: KWin needs 10 to 17 s to open its socket on a guest whose CPUs the
+rest of the boot still keeps busy, against SDDM's fixed 15 s.
+
 The limits are bounded: the guest's boot to its login prompt 1800 s, the job 120 minutes. The artifact is
 `desktop-boot-arm64` (the screenshots, the serial log). Running it needs an arm64 machine (or the same
 steps on another one with QEMU's `qemu-system-aarch64` and AAVMF), root and nyra-base at the commit of
