@@ -192,6 +192,9 @@ tests/vm/plasma.sh ../nyra-base localhost/nyra-desktop:ci /var/tmp/build/uki.crt
 
 ### Level 2 on aarch64
 
+arm64 is deferred: the job below is kept but skipped unless the repository variable `ARM64_ENABLED` is `on`
+(`docs/RELEASE.md`, "arm64"). It does not gate anything of the x86_64 image.
+
 `tests/vm/plasma-arm64.sh`, the `boot-arm64` job of `.github/workflows/image.yml`, does the same on the
 arm64 image (`docs/IMAGE.md`, "arm64"): nyra-base's VM tools install it to a disk and boot it in QEMU's
 `virt` machine with edk2 (AAVMF), with Secure Boot: Debian's arm64 shim, then systemd-boot, then the

@@ -55,6 +55,12 @@ switch inside the run: the variable `DESKTOP_RELEASE` is the switch, and the oth
 
 ## arm64
 
+arm64 is deferred. The code below stays in `image.yml`, but every `-arm64` job is skipped unless the
+repository variable `ARM64_ENABLED` is `on` (unset by default), so it neither runs nor fails. To switch it
+back on, set `ARM64_ENABLED` to `on`; nothing else changes. The x86_64 jobs (`release-sign`, `release-image`,
+`boot`, `sign`, `verify-signature`, `publish`, `verify-published`) never needed an arm64 job and still do not;
+the arm64 pins (`base/pin-arm64`, `base/manifest-arm64.json`) are kept as they are.
+
 The arm64 image has its own release jobs in `image.yml`, in release mode only and by the same rule (a push
 or manual run on `main` with `DESKTOP_RELEASE` `on`; there is no separate variable). They are the jobs above
 on the arm64 build, with the same keys, certificate, service account and variables, for the repository
