@@ -13,7 +13,8 @@
 # The jobs ending in -arm64 do the same for aarch64 (docs/IMAGE.md, "arm64"): natively on GitHub's arm64
 # runners, from the pinned arm64 base (base/pin-arm64), and booted emulated (they have no KVM), to the login
 # screen and a Plasma session. They are part of this file, with the same permissions as the x86_64 jobs;
-# nothing of the x86_64 jobs needs them. In release mode the arm64 build has its own release-sign-arm64
+# nothing of the x86_64 jobs needs them. They are deferred: all of them are skipped unless the repository
+# variable ARM64_ENABLED is `on` (docs/RELEASE.md, "arm64"). In release mode the arm64 build has its own release-sign-arm64
 # and release-image-arm64 (docs/RELEASE.md), and boot-arm64 boots the release image instead of the build's.
 name: image
 on:
@@ -947,6 +948,9 @@ jobs:
   # SBOM or vulnerability scan: nyra-base's scanner reads the amd64 package index only. The work
   # directory is on the root disk: the arm64 runners have no /mnt disk.
   build-arm64:
+    # Deferred: off unless ARM64_ENABLED is `on`. Every other -arm64 job needs this one (directly or through
+    # the jobs that do), and each of them runs only after build-arm64 succeeded, so they are skipped with it.
+    if: ${{ vars.ARM64_ENABLED == 'on' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     outputs:
