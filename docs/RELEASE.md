@@ -235,7 +235,56 @@ In this order:
 Each publish run then waits for the owner's approval of the environment `publish`. To stop publishing, unset
 `PUBLISH_ENABLED`; to stop all release signing, unset `DESKTOP_RELEASE`.
 
+## Trying the desktop in an x86_64 virtual machine on a Windows PC
+
+For the published desktop (repository `nyra-desktop`, channel `stable`; version 2026.11.73 is the first).
+There is no desktop ISO: you install the base, then switch it to the desktop.
+
+**The virtual machine** (Hyper-V generation 2, or VMware Workstation or Player):
+
+- UEFI with **Secure Boot on** and the **Microsoft UEFI Certificate Authority** key set. In Hyper-V that is the
+  template "Microsoft UEFI Certificate Authority", **not** the Windows template.
+- A **virtual TPM 2.0**. Hyper-V: "Enable Trusted Platform Module" in the VM's Security settings. VMware: the
+  virtual TPM needs the VM to be encrypted; set that up first.
+- At least 8 GiB of memory, 2 or more CPUs, a disk of at least 32 GB.
+
+**Step A: install the base.** Use the base's installer ISO (unsigned; it is a CI artifact). Check its SHA-256
+before you use it. How to get it, check it and what the installer shows is in nyra-base,
+`docs/ISO.md`, "Trying the ISO".
+
+**Step B: update the base.** Boot the new machine, log in, run `nyra update` (it takes the base to the current
+release), and restart.
+
+**Step C: switch to the desktop.**
+
+1. Restart the VM. At the boot menu, hold Space (in Hyper-V, click the VM connection window first) and choose
+   "Nyra OS Recovery".
+2. Enter the disk password, then the administrator's name and password.
+3. In the console, one at a time:
+
+   ```
+   systemctl start systemd-networkd systemd-resolved
+   networkctl status
+   systemctl start nyra-etc-copy@update.service
+   bootc switch updates.nyraos.com/nyra-desktop:stable
+   bootc status
+   systemctl reboot
+   ```
+
+   `networkctl status` must show an IP address. `bootc status` must show `nyra-desktop` as Staged.
+4. After the restart: the disk password, then the graphical login.
+
+The disk, its password and recovery key, the account and your files stay as they are, and the Secure Boot
+key is not enrolled again. If the desktop does not start, the boot menu still has the base version.
+
+**Step D: later updates.** Run `nyra update`. The desktop updates itself from the `stable` channel; when to
+restart is your choice.
+
+**If it fails**, report the step, a photo of the screen, and the output of `bootc status`.
+
+**Not verified:** we have not tried this on Hyper-V or VMware. The arm64 desktop is dropped for now.
+
 ## What is not here yet
 
-The installer and an ISO of the desktop: a machine gets the desktop by switching from the base (as root,
-from the recovery console), not by installing it.
+An installer and an ISO of the desktop: a machine gets the desktop by switching from the base (as root, from
+the recovery console), not by installing it.
